@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AI SOUL v13: TEAL/ORANGE</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;900&family=Rajdhani:wght@300;500;700&display=swap" rel="stylesheet">
+    <style>
+        /* --- CORE --- */
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Rajdhani', sans-serif; user-select: none; -webkit-tap-highlight-color: transparent; }
+
+        /* --- LAYERS --- */
+        /* Video BG */
+        #ar-video {
+            position: absolute; inset: 0; width: 100%; height: 100%;
+            object-fit: cover; transform: scaleX(-1); z-index: 0;
+            opacity: 0; transition: opacity 0.5s;
+        }
+        /* Hidden input for AI */
+        #webcam-feed { display: none; }
+        
+        /* --- NEW TEAL/ORANGE FILTER --- */
+        body.ar-active #ar-video {
+            opacity: 1;
+            /* Sepia+Hue: Створює базу кольору.
+               Saturate: Робить кольори "соковитими".
+               Contrast: Глибокі тіні.
+               Blur: Ефект "Soft Skin" (згладжування).
+            */
+            filter: sepia(0.4) hue-rotate(150deg) saturate(2.2) contrast(1.1) brightness(0.9) blur(1.5px);
+        }
+        
+        .scanlines { position: absolute; inset: 0; background: repeating-linear-gradient(to bottom, transparent 0, transparent 2px, rgba(0,0,0,0.5) 3px); z-index: 1; opacity: 0; pointer-events: none; mix-blend-mode: overlay; }
+        body.ar-active .scanlines { opacity: 1; }
+
+        /* --- UI --- */
+        .ui-layer { position: absolute; inset: 0; z-index: 20; pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; }
+        .header { padding: 20px; background: linear-gradient(180deg, rgba(0,0,0,0.9), transparent); display: flex; justify-content: space-between; }
+        .title { font-family: 'Orbitron'; font-weight: 900; font-size: 20px; color: #fff; text-shadow: 0 0 10px #00f3ff; }
+        .sub { font-size: 10px; color: #00f3ff; letter-spacing: 2px; }
+        .status-box { text-align: right; }
+        .stat { font-size: 12px; color: #aaa; font-weight: bold; }
+        .val { color: #fff; font-family: 'Orbitron'; }
+        
+        .footer { padding: 20px; background: linear-gradient(0deg, rgba(0,0,0,0.9), transparent); display: flex; flex-direction: column; align-items: center; justify-content: flex-end; min-height: 150px; }
+        
+        .log-box { width: 90%; max-width: 400px; text-align: center; margin-bottom: 20px; perspective: 1000px; }
+        .log-msg { background: rgba(0, 10, 20, 0.8); border: 1px solid #00f3ff; color: #fff; padding: 10px; border-radius: 4px; font-weight: 600; text-shadow: 0 0 5px #00f3ff; animation: popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        @keyframes popIn { from{opacity:0; transform:translateY(20px);} to{opacity:1; transform:translateY(0);} }
+
+        .ar-btn { position: absolute; right: 20px; bottom: 30px; width: 60px; height: 60px; border-radius: 50%; background: rgba(0,0,0,0.6); border: 1px solid #fff; color: #fff; pointer-events: auto; display: grid; place-items: center; transition: 0.3s; z-index: 50; cursor: pointer; }
+        .ar-btn.active { border-color: #ff9900; background: rgba(255, 153, 0, 0.2); box-shadow: 0 0 20px #ff9900; color: #ff9900; }
+        
+        #start-screen { position: absolute; inset: 0; background: #050505; z-index: 100; display: flex; flex-direction: column; justify-content: center; align-items: center; transition: opacity 0.5s; }
+        .btn-start { margin-top: 30px; padding: 15px 40px; background: transparent; border: 2px solid #00f3ff; color: #00f3ff; font-family: 'Orbitron'; font-size: 16px; cursor: pointer; box-shadow: 0 0 15px rgba(0,243,255,0.2); transition: 0.3s; pointer-events: auto; }
+        .btn-start:hover { background: #00f3ff; color: #000; box-shadow: 0 0 40px #00f3ff; }
+
+        .gl-canvas { position: absolute; inset: 0; z-index: 5; }
+    </style>
+
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+    <div id="start-screen">
+        <h1 style="font-family:'Orbitron'; color:#fff; margin:0; text-shadow:0 0 20px #00f3ff">AI SOUL</h1>
+        <div style="color:#666; font-size:12px; letter-spacing:4px;">v13.0 // TEAL UPDATE</div>
+        <button class="btn-start" onclick="startSystem()">INITIALIZE</button>
+        <div style="color:#444; font-size:10px; margin-top:20px; text-align: center">
+            USE BLUE CURSORS TO PUSH<br>PINCH FOR RED MAGNET
+        </div>
+    </div>
+
+    <video id="webcam-feed" playsinline muted autoplay></video>
+    <video id="ar-video" playsinline muted autoplay></video>
+    <div class="scanlines"></div>
+
+    <div class="ui-layer">
+        <div class="header">
+            <div><div class="title">NEURAL CORE</div><div class="sub">STATUS: ONLINE</div></div>
+            <div class="status-box">
+                <div class="stat">HANDS: <span id="hand-status" style="color:red">OFFLINE</span></div>
+                <div class="stat">FPS: <span id="fps" class="val">0</span></div>
+            </div>
+        </div>
+        <div class="footer">
+            <div class="log-box" id="chat"></div>
+            <div class="ar-btn" onclick="toggleAR()" id="ar-btn">
+                <svg viewBox="0 0 24 24" width="30" height="30" fill="currentColor"><path d="M12,4.5C7,4.5 2.73,7.61 1,12C2.73,16.39 7,19.5 12,19.5C17,19.5 21.27,16.39 23,12C21.27,7.61 17,4.5 12,4.5M12,17.5C8.96,17.5 6.5,15.04 6.5,12C6.5,8.96 8.96,6.5 12,6.5C15.04,6.5 17.5,8.96 17.5,12C17.5,15.04 15.04,17.5 12,17.5M12,9.5C10.62,9.5 9.5,10.62 9.5,12C9.5,13.38 10.62,14.5 12,14.5C13.38,14.5 14.5,13.38 14.5,12C14.5,10.62 13.38,9.5 12,9.5Z"/></svg>
+            </div>
+        </div>
+    </div>
+
+    <canvas id="gl-canvas" class="gl-canvas"></canvas>
+
+<script>
+    // --- DB ---
+    const DB = {
+        boot: ["я бачу твій світ.", "система готова.", "чекаю контакту."],
+        idle: ["де твої руки?", "порожнеча...", "я відчуваю самотність.", "аналіз даних..."],
+        touch: ["КОНТАКТ.", "я відчуваю це.", "імпульс прийнято.", "структура змінюється."],
+        magnet: ["МИ ПОВ'ЯЗАНІ.", "тяжіння...", "не відпускай.", "синхронізація."],
+        spin: ["ОБЕРТАННЯ!", "світ кружляє...", "надто швидко!"],
+        ar: ["фільтри реальності: ON.", "режим кіно: активний."]
+    };
+
+    // --- CFG ---
+    const CFG = {
+        radius: 11, friction: 0.96, spring: 0.06, 
+        touchForce: 2.0, // Збільшена сила
+        magnetRange: 12, // Збільшений радіус
+        pushRange: 14    // Збільшений радіус
+    };
+
+    // --- STATE ---
+    const STATE = {
+        hands: {}, // Stores pos vector & state
+        rotVel: new THREE.Vector3(),
+        ar: false, lastChat: 0
+    };
+
+    // --- THREE.JS ---
+    const scene = new THREE.Scene();
+    // Видалив туман, щоб курсори були яскраві
+    // scene.fog = new THREE.FogExp2(0x000000, 0.02);
+
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 100);
+    camera.position.z = window.innerWidth < 800 ? 50 : 35;
+    
+    const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('gl-canvas'), alpha: true, antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+
+    // Objects
+    const core = new THREE.Mesh(new THREE.IcosahedronGeometry(6, 1), new THREE.MeshBasicMaterial({color:0x000000, wireframe:true, opacity:0.3, transparent:true}));
+    scene.add(core);
+
+    const geo = new THREE.IcosahedronGeometry(CFG.radius, 6);
+    const pos = geo.attributes.position;
+    const origPos = pos.array.slice();
+    const colors = new Float32Array(pos.count * 3);
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    const sphere = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({vertexColors:true, wireframe:true, transparent:true, opacity:0.8, blending:THREE.AdditiveBlending}));
+    scene.add(sphere);
+
+    // CURSORS (Visual Hand Indicators)
+    // Ми створюємо пусті об'єкти, які будемо рухати
+    const cursors = [];
+    const cursorGeo = new THREE.TorusGeometry(2, 0.2, 8, 20);
+    const cursorMat = new THREE.MeshBasicMaterial({color: 0x00f3ff, transparent: true, opacity: 0.8});
+    
+    // Pool of 2 cursors
+    for(let i=0; i<2; i++) {
+        const c = new THREE.Mesh(cursorGeo, cursorMat.clone());
+        c.visible = false;
+        scene.add(c);
+        cursors.push(c);
+    }
+
+    // --- PHYSICS ---
+    const vNow = new THREE.Vector3(), vOrig = new THREE.Vector3(), vTmp = new THREE.Vector3(), cTmp = new THREE.Color();
+    const vHand = new THREE.Vector3();
+
+    function updatePhysics() {
+        sphere.rotation.x += STATE.rotVel.x; sphere.rotation.y += STATE.rotVel.y;
+        STATE.rotVel.multiplyScalar(CFG.friction);
+        core.rotation.y -= 0.01; 
+        
+        if(STATE.rotVel.length() > 0.05) chat('spin');
+
+        let maxStress = 0, isTouched = false, isMagnet = false;
+        
+        // Transform Matrix for World Space Logic
+        sphere.updateMatrixWorld();
+        const mat = sphere.matrixWorld; 
+        const matInv = new THREE.Matrix4().copy(mat).invert();
+
+        for(let i=0; i < pos.count; i++) {
+            const idx = i*3;
+            vNow.set(pos.array[idx], pos.array[idx+1], pos.array[idx+2]);
+            vOrig.set(origPos[idx], origPos[idx+1], origPos[idx+2]);
+            vNow.lerp(vOrig, CFG.spring);
+
+            // Calculate Vertex World Pos
+            vTmp.copy(vNow).applyMatrix4(mat); 
+
+            // Check Hands
+            for(let k in STATE.hands) {
+                const h = STATE.hands[k];
+                // Force Z match for 2.5D interaction feel
+                // Ми ігноруємо різницю в глибині, якщо рука "візуально" над сферою
+                // Просто беремо XY відстань, а Z прирівнюємо
+                
+                const dist2D = Math.sqrt(Math.pow(vTmp.x - h.pos.x, 2) + Math.pow(vTmp.y - h.pos.y, 2));
+                // Але для фізики нам потрібен 3D вектор. 
+                // Створимо віртуальну точку контакту на поверхні сфери
+                
+                // Спрощена фізика: просто перевіряємо 3D дистанцію, але Hand Z проектований на сферу
+                const dist = vTmp.distanceTo(h.pos);
+
+                if(h.pinch) { // Magnet
+                    if(dist < CFG.magnetRange) {
+                        vTmp.lerp(h.pos, (1 - dist/CFG.magnetRange)*0.3);
+                        isMagnet = true;
+                    }
+                } else { // Push
+                    if(dist < CFG.pushRange) {
+                        const f = (1 - dist/CFG.pushRange) * CFG.touchForce;
+                        const dir = new THREE.Vector3().subVectors(vTmp, h.pos).normalize();
+                        vTmp.addScaledVector(dir, f);
+                        
+                        if(h.vel.length() > 0.3) {
+                            STATE.rotVel.add(vTmp.clone().cross(h.vel).multiplyScalar(0.0003));
+                        }
+                        isTouched = true;
+                    }
+                }
+            }
+
+            vTmp.applyMatrix4(matInv); // Save Local
+            pos.array[idx] = vTmp.x; pos.array[idx+1] = vTmp.y; pos.array[idx+2] = vTmp.z;
+
+            // Color
+            const stress = vTmp.distanceTo(vOrig);
+            if(stress > maxStress) maxStress = stress;
+            const s = Math.min(stress/3, 1);
+            if(s < 0.2) cTmp.setHSL(0.5, 1, 0.2);
+            else cTmp.setHSL(0.5+s*0.5, 1, 0.5+s);
+            colors[idx] = cTmp.r; colors[idx+1] = cTmp.g; colors[idx+2] = cTmp.b;
+        }
+        pos.needsUpdate = true; geo.attributes.color.needsUpdate = true;
+
+        if(isMagnet) chat('magnet'); else if(isTouched) chat('touch'); else chat('idle');
+    }
+
+    // --- SYSTEM ---
+    async function startSystem() {
+        const el = document.documentElement; if(el.requestFullscreen) el.requestFullscreen();
+        document.getElementById('start-screen').style.opacity = 0;
+        setTimeout(()=>document.getElementById('start-screen').style.display='none', 800);
+        chat('boot');
+
+        const videoRaw = document.getElementById('webcam-feed');
+        const videoAR = document.getElementById('ar-video');
+        
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { width: {ideal: 640}, height: {ideal: 480}, facingMode: "user" } 
+            });
+            videoRaw.srcObject = stream;
+            videoAR.srcObject = stream;
+            await new Promise(r => videoRaw.onloadedmetadata = r);
+            videoRaw.play(); videoAR.play();
+            initAI(videoRaw);
+        } catch(e) { alert("CAM ERROR: "+e); }
+        
+        resize(); animate();
+    }
+
+    function initAI(videoElement) {
+        const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+        hands.setOptions({maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5});
+        hands.onResults(processResults);
+        
+        async function loop() {
+            if(videoElement.readyState >= 2) await hands.send({image: videoElement});
+            requestAnimationFrame(loop);
+        }
+        loop();
+    }
+
+    const hStatus = document.getElementById('hand-status');
+
+    function getProj(x, y) {
+        // Project 2D normalized (0..1) to 3D Plane at Sphere's Z (0)
+        // Camera Z is usually 35-50. Sphere is at 0.
+        const dist = camera.position.z; // Distance from cam to sphere center
+        const vFOV = THREE.Math.degToRad(camera.fov);
+        const h = 2 * Math.tan(vFOV/2) * dist;
+        const w = h * camera.aspect;
+        
+        // x, y are 0..1 from top-left. ThreeJS is center 0,0.
+        // Also flip X for mirror effect
+        return new THREE.Vector3((0.5-x)*w, (0.5-y)*h, 0); // Force Z=0
+    }
+
+    function processResults(res) {
+        const currentHands = {};
+        
+        // Hide cursors first
+        cursors[0].visible = false;
+        cursors[1].visible = false;
+
+        if(res.multiHandLandmarks && res.multiHandLandmarks.length > 0) {
+            hStatus.innerText = "ONLINE"; hStatus.style.color = "#00f3ff";
+
+            res.multiHandLandmarks.forEach((lm, i) => {
+                if(i > 1) return; // Only 2 hands
+                
+                const t8 = lm[8]; // Index
+                const t4 = lm[4]; // Thumb
+                const pinch = Math.hypot(t8.x-t4.x, t8.y-t4.y) < 0.08;
+                
+                const pos = getProj(t8.x, t8.y);
+                
+                const oldHand = STATE.hands[i];
+                const vel = oldHand ? new THREE.Vector3().subVectors(pos, oldHand.pos) : new THREE.Vector3();
+
+                currentHands[i] = { pos: pos, vel: vel, pinch: pinch };
+                
+                // Update Visual Cursor
+                const c = cursors[i];
+                c.visible = true;
+                c.position.copy(pos);
+                // Rotate cursor for fun
+                c.rotation.z += 0.1;
+                c.rotation.x += 0.05;
+                
+                if(pinch) {
+                    c.material.color.setHex(0xff0000); // Red
+                    c.scale.setScalar(0.5); // Shrink
+                } else {
+                    c.material.color.setHex(0x00f3ff); // Blue
+                    c.scale.setScalar(1.0);
+                }
+            });
+        } else {
+            hStatus.innerText = "SCANNING..."; hStatus.style.color = "orange";
+        }
+        STATE.hands = currentHands;
+    }
+
+    // --- UTILS ---
+    function chat(type) {
+        const now = Date.now();
+        if(now - STATE.lastChat < 3000) return;
+        if(type==='idle' && Math.random()>0.4) return;
+        const txt = DB[type][Math.floor(Math.random()*DB[type].length)];
+        document.getElementById('chat').innerHTML = `<div class="log-msg">${txt}</div>`;
+        STATE.lastChat = now;
+    }
+
+    function toggleAR() {
+        STATE.ar = !STATE.ar;
+        document.body.classList.toggle('ar-active', STATE.ar);
+        document.getElementById('ar-btn').classList.toggle('active', STATE.ar);
+        chat('ar');
+    }
+
+    let frames=0, lt=0;
+    function animate() {
+        requestAnimationFrame(animate);
+        updatePhysics();
+        renderer.render(scene, camera);
+        frames++;
+        if(performance.now()-lt>1000) { document.getElementById('fps').innerText=frames; frames=0; lt=performance.now(); }
+    }
+
+    function resize() {
+        camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth,window.innerHeight);
+        camera.position.z = window.innerWidth < 800 ? 50 : 35;
+    }
+    window.addEventListener('resize', resize);
+
+</script>
+</body>
+</html>
