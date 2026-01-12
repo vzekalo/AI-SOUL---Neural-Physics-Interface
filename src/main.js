@@ -1,11 +1,12 @@
 import * as THREE from 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.module.js';
-import { CFG, STATE, QUALITY, LOW_LIGHT, M1_MODE } from './config.js';
+import { CFG, STATE, QUALITY, LOW_LIGHT, M1_MODE, BLACK_HOLE } from './config.js';
 import { setupScene } from './visuals/SceneSetup.js';
 import { HandTracker } from './input/HandTracker.js';
 import { PhysicsWorld } from './physics/PhysicsWorld.js';
 import { HUD } from './visuals/HUD.js';
 import { NeuralNet } from './visuals/NeuralNet.js';
 import { SparkSystem } from './visuals/Particles.js';
+import { Tuner } from './visuals/Tuner.js';
 import { AudioManager } from './core/AudioManager.js';
 import { HapticEngine } from './core/HapticEngine.js';
 import { GestureRecognizer } from './input/Gestures.js';
@@ -33,6 +34,7 @@ const el = {
     btnAr: $("btn-ar"),
     btnInfo: $("btn-info"),
     btnLowLight: $("btn-lowlight"),
+    btnTuning: $("btn-tuning"),
     infoPanel: $("info-panel"),
     hudStatus: $("hud-status")
 };
@@ -40,6 +42,7 @@ const el = {
 // --- SUBSYSTEMS ---
 const { scene, camera, renderer } = setupScene(el.gl);
 const audio = new AudioManager();
+window.audio = audio; // Expose for physics triggers
 const tracker = new HandTracker();
 const hud = new HUD(el.hud, el);
 const sparks = new SparkSystem(scene);
@@ -48,6 +51,7 @@ const calibration = new Calibration(postLine);
 const recorder = new RecordingSystem(postLine);
 const messenger = new LinePicker();
 const twoHand = new TwoHandInteraction();
+const tuner = new Tuner(STATE, BLACK_HOLE); // Press 'T' to toggle
 
 // Hand smoothing (EMA filter for trembling fix)
 const smoothedHands = {};
@@ -190,7 +194,18 @@ function applyLowLightFilter() {
 function applyQuality(tier) {
     STATE.tier = Math.max(0, Math.min(QUALITY.length - 1, tier));
     el.qTier.textContent = QUALITY[STATE.tier].name;
+
+    // Update Systems
     sparks.init(QUALITY[STATE.tier].sparkCount);
+
+    // Black Hole Visuals Quality
+    if (physics.disk) physics.disk.setQuality(STATE.tier);
+    if (physics.jets) physics.jets.setQuality(STATE.tier);
+    BLACK_HOLE.rayCount = QUALITY[STATE.tier].kRayCount || 6;
+
+    // Renderer settings
+    const dpr = window.devicePixelRatio || 1;
+    renderer.setPixelRatio(Math.min(dpr, QUALITY[STATE.tier].dprCap));
     resizeHUD();
 }
 
@@ -233,7 +248,23 @@ function animate() {
     frames++;
     const pNow = performance.now();
     if (pNow - lastFpsTick > 1000) {
+        STATE.fpsAvg = frames;
         el.fps.textContent = frames;
+
+        // Auto-downgrade if FPS < 35 for consecutive seconds
+        if (frames < 35 && STATE.tier < 2) {
+            if (!STATE.fpsLowCounter) STATE.fpsLowCounter = 0;
+            STATE.fpsLowCounter++;
+
+            if (STATE.fpsLowCounter > 2) { // 3 seconds of low FPS
+                applyQuality(STATE.tier + 1);
+                STATE.fpsLowCounter = 0;
+                postLine(`> Quality optimized to Tier ${STATE.tier}`);
+            }
+        } else {
+            STATE.fpsLowCounter = 0;
+        }
+
         frames = 0;
         lastFpsTick = pNow;
     }
@@ -432,5 +463,14 @@ el.btnInfo.addEventListener('click', () => {
     el.btnInfo.classList.toggle('active');
 });
 
+// Tuning Menu
+if (el.btnTuning) {
+    el.btnTuning.addEventListener('click', () => {
+        tuner.toggle();
+        el.menuSubmenu.classList.remove('active');
+        el.menuFab.classList.remove('active');
+    });
+}
 applyQuality(0);
 window.addEventListener('resize', resizeHUD);
+window.addEventListener('load', init);

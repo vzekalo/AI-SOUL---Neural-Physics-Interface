@@ -2,6 +2,8 @@ import * as THREE from 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/thr
 import { STATE, BLACK_HOLE, CFG } from '../config.js';
 import { SoftBody } from './SoftBody.js';
 import { Singularity } from './Singularity.js';
+import { AccretionDisk } from '../visuals/AccretionDisk.js';
+import { Jets } from '../visuals/Jets.js';
 
 export class PhysicsWorld {
     constructor(scene, sphere, neuralNet) {
@@ -10,6 +12,18 @@ export class PhysicsWorld {
         this.neuralNet = neuralNet;
         this.softBody = new SoftBody(sphere);
         this.singularity = new Singularity();
+
+        // Visuals
+        if (BLACK_HOLE.accretion && BLACK_HOLE.accretion.enabled) {
+            this.disk = new AccretionDisk(scene, BLACK_HOLE.accretion);
+            // Ensure hidden initially
+            if (this.disk && this.disk.points) this.disk.points.visible = false;
+        }
+        if (BLACK_HOLE.jets && BLACK_HOLE.jets.enabled) {
+            this.jets = new Jets(scene, BLACK_HOLE.jets);
+            if (this.jets && this.jets.points) this.jets.points.visible = false;
+        }
+
         this.arObjects = [];
     }
 
@@ -59,6 +73,31 @@ export class PhysicsWorld {
 
         // Update Sphere SoftBody
         this.softBody.update(hands, this.singularity, deltaTime);
+
+        // Physics Loop specific to Singularity Mode
+        if (STATE.mode === 'SINGULARITY') {
+            // Update Black Hole Visuals
+            const bhPos = this.singularity.pos;
+            const pull = STATE.blackHolePull; // Eased value from main.js
+
+            if (this.disk) {
+                this.disk.setCenter(bhPos);
+                this.disk.update(deltaTime, t, pull);
+                if (!this.disk.points.visible) this.disk.points.visible = true;
+            }
+            if (this.jets) {
+                this.jets.setCenter(bhPos);
+                this.jets.update(deltaTime, t);
+                if (!this.jets.points.visible) this.jets.points.visible = true;
+            }
+
+            // Global pull towards black hole
+            this.singularity.applyPull(this.sphere, deltaTime);
+        } else {
+            // Hide visuals when not active
+            if (this.disk && this.disk.points.visible) this.disk.points.visible = false;
+            if (this.jets && this.jets.points.visible) this.jets.points.visible = false;
+        }
 
         // Update AR Objects
         this.arObjects.forEach(obj => {
@@ -111,9 +150,6 @@ export class PhysicsWorld {
 
             // Stay near center
             this.sphere.position.multiplyScalar(0.995);
-        } else if (STATE.mode === 'SINGULARITY') {
-            // Global pull towards black hole
-            this.singularity.applyPull(this.sphere, deltaTime);
         }
     }
 }

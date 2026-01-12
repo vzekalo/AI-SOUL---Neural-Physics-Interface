@@ -164,38 +164,53 @@ export class HUD {
     }
 
     drawActiveSingularity(tunnelFactor, sphere, camera, hue, ctx) {
-        const ndc = new THREE.Vector3(0.7, 0.7, 0);
-        const bhPos = ndc.unproject(camera);
-        bhPos.project(camera);
-        let tunnelX = (bhPos.x * 0.5 + 0.5) * window.innerWidth;
+        // Use actual physics position (World Space) projected to Screen
+        const bhPos = STATE.blackHolePos ? STATE.blackHolePos.clone() : new THREE.Vector3();
+
+        // --- GRAVITATIONAL LENSING (Cheap 2D Effect) ---
+        // Draw this BEFORE the tunnel so it sits behind/around
+        this.drawLensingRing(bhPos, camera, ctx);
+
+        // Project center for tunnel
+        bhPos.project(camera); // World -> NDC
+        const tunnelX = (bhPos.x * 0.5 + 0.5) * window.innerWidth;
         const tunnelY = (-(bhPos.y * 0.5) + 0.5) * window.innerHeight;
-        tunnelX = window.innerWidth - tunnelX;
+        // removed mirror: tunnelX = window.innerWidth - tunnelX;
 
         ctx.save();
 
         // Draw flowing streams with bezier curves - FEWER, more subtle
+        // Draw flowing streams with bezier curves
+        // Stable direction: Tunnel -> Screen Center (or close to sphere center)
         const posAttr = sphere.geometry.attributes.position;
         const vTmp = new THREE.Vector3();
-        const streamCount = Math.min(8, Math.floor(4 + tunnelFactor * 5)); // Much fewer streams
+
+        // Use configured ray count for performance adaptation
+        const maxRays = STATE.tier === 0 ? 8 : (STATE.tier === 1 ? 5 : 3);
+        const streamCount = Math.min(maxRays, Math.floor(2 + tunnelFactor * maxRays));
+
+        // Screen center approx
+        const centerX = window.innerWidth * 0.5;
+        const centerY = window.innerHeight * 0.5;
 
         for (let i = 0; i < streamCount; i++) {
             const idx = Math.floor(Math.random() * posAttr.count) * 3;
             vTmp.set(posAttr.array[idx], posAttr.array[idx + 1], posAttr.array[idx + 2]);
             vTmp.applyMatrix4(sphere.matrixWorld).project(camera);
 
-            let vx = (vTmp.x * 0.5 + 0.5) * window.innerWidth;
+            const vx = (vTmp.x * 0.5 + 0.5) * window.innerWidth;
             const vy = (-(vTmp.y * 0.5) + 0.5) * window.innerHeight;
-            vx = window.innerWidth - vx;
 
-            // Control points for bezier curve
-            const midX = (vx + tunnelX) / 2 + (Math.random() - 0.5) * 40 * tunnelFactor;
-            const midY = (vy + tunnelY) / 2 + (Math.random() - 0.5) * 40 * tunnelFactor;
+            // Control points: Guided towards center instead of random chaos
+            const lerpFactor = 0.3 + 0.2 * Math.random();
+            const midX = tunnelX + (centerX - tunnelX) * lerpFactor + (Math.random() - 0.5) * 50;
+            const midY = tunnelY + (centerY - tunnelY) * lerpFactor + (Math.random() - 0.5) * 50;
 
             // Single subtle layer
             const alpha = 0.25 * tunnelFactor;
-            ctx.strokeStyle = `hsla(${(hue * 360 + i * 20) % 360}, 60%, 50%, ${alpha})`;
+            ctx.strokeStyle = `hsla(${(hue * 360 + i * 30) % 360}, 60%, 50%, ${alpha})`;
             ctx.lineWidth = 1.5;
-            ctx.shadowColor = `hsla(${(hue * 360 + i * 20) % 360}, 80%, 40%, 0.3)`;
+            ctx.shadowColor = `hsla(${(hue * 360 + i * 30) % 360}, 80%, 40%, 0.3)`;
             ctx.shadowBlur = 6;
 
             ctx.beginPath();
@@ -251,5 +266,49 @@ export class HUD {
         ctx.restore();
 
         if (this.el.hudStatus) this.el.hudStatus.textContent = `⚠ SINGULARITY: ${(tunnelFactor * 100).toFixed(0)}%`;
+    }
+
+    drawLensingRing(bhWorldPos, camera, ctx) {
+        // Project center
+        const center = bhWorldPos.clone().project(camera);
+        const cx = (center.x * 0.5 + 0.5) * window.innerWidth;
+        const cy = (-(center.y * 0.5) + 0.5) * window.innerHeight;
+        // removed mirror: cx = window.innerWidth - cx;
+
+        // Calculate radius in screen space
+        const radiusWorld = 28;
+        const featherWorld = 16;
+
+        // Offset in camera plane roughly
+        const offsetPos = bhWorldPos.clone().add(new THREE.Vector3(radiusWorld, 0, 0));
+        offsetPos.project(camera);
+
+        let ox = (offsetPos.x * 0.5 + 0.5) * window.innerWidth;
+        ox = window.innerWidth - ox;
+
+        const dx = cx - ox;
+        const rScreen = Math.abs(dx);
+        const featherScreen = rScreen * (featherWorld / radiusWorld);
+
+        if (rScreen < 1) return;
+
+        ctx.save();
+        ctx.globalCompositeOperation = "lighter";
+
+        try {
+            const g = ctx.createRadialGradient(cx, cy, Math.max(0, rScreen - featherScreen), cx, cy, rScreen + featherScreen);
+            g.addColorStop(0, "rgba(0,243,255,0)");
+            g.addColorStop(0.45, "rgba(0,243,255,0.08)");
+            g.addColorStop(0.5, "rgba(255,160,60,0.18)"); // Warmer core
+            g.addColorStop(0.62, "rgba(0,243,255,0.06)");
+            g.addColorStop(1, "rgba(0,243,255,0)");
+
+            ctx.fillStyle = g;
+            ctx.beginPath();
+            ctx.arc(cx, cy, rScreen + featherScreen, 0, Math.PI * 2);
+            ctx.fill();
+        } catch (e) { }
+
+        ctx.restore();
     }
 }

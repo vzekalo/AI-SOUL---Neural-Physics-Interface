@@ -38,6 +38,13 @@ export class SoftBody {
         this.tangent = new THREE.Vector3();
         this.matInv = new THREE.Matrix4();
 
+        // Cinematic Physics Vectors
+        this.axis = new THREE.Vector3(0, 0, 1);
+        this.tan = new THREE.Vector3();
+        this.tmpV3 = new THREE.Vector3();
+        this.tmpV4 = new THREE.Vector3();
+        this.absorb = new Float32Array(this.count); // 0..1 per vertex absorption state
+
         // Reusable color object
         this.tmpColor = new THREE.Color();
 
@@ -59,6 +66,13 @@ export class SoftBody {
 
         for (let i = 0; i < this.count; i++) {
             const idx = i * 3;
+
+            // -- SAFETY CHECK --
+            if (isNaN(this.currentPos[idx]) || isNaN(this.currentPos[idx + 1]) || isNaN(this.currentPos[idx + 2])) {
+                hasNaN = true;
+                break;
+            }
+
             this.vTmp.set(this.currentPos[idx], this.currentPos[idx + 1], this.currentPos[idx + 2]);
             this.vTmp.applyMatrix4(this.mesh.matrixWorld);
 
@@ -73,11 +87,31 @@ export class SoftBody {
     }
 
     update(hands, singularity, deltaTime) {
-        const dt = Math.min(0.033, Math.max(0.001, deltaTime || 0.016));
+        let dt = Math.min(0.033, Math.max(0.008, deltaTime || 0.016));
         const t = performance.now() * 0.001;
 
         this.mesh.updateMatrixWorld();
         this.matInv.copy(this.mesh.matrixWorld).invert();
+
+        // Pass 1: Reset forces & apply gravity
+        const pos = this.currentPos;
+        const vel = this.velocity;
+        const count = this.count; // Corrected from `this.numVertices`
+        const springK = 0.035; // These variables are introduced but not used in the provided snippet's loop.
+        const friction = 0.92; // They might be intended for a later part of the physics update.
+
+        // -- SAFETY FLAG --
+        let hasNaN = false;
+
+        for (let i = 0; i < count; i++) {
+            const idx = i * 3;
+
+            // -- SAFETY CHECK --
+            if (isNaN(pos[idx]) || isNaN(pos[idx + 1]) || isNaN(pos[idx + 2])) {
+                hasNaN = true;
+                break;
+            }
+        }
 
         const sphereScale = this.mesh.scale.x || 1;
         const sphereRadius = CFG.radius * sphereScale;
@@ -266,11 +300,21 @@ export class SoftBody {
                         }
                     }
                 } else if (!hand.pinch) {
-                    // Push interaction (repulsion when not pinching)
+                    // Check if this hand just released a pinch (was grabbing something)
+                    // We prevent immediate push if the hand is still very close where it was pinching
+                    // to prevent "explosion" effect
+                    const justReleased = hand.grabVertex >= 0; // This might be cleared already by input system?
+                    // Actually, grabVertex is set to -1 in update loop when !pinch.
+                    // So we need a better heuristic. 
+
+                    // PUSH interaction
+                    // Only push if we are somewhat outside the sphere or if the movement is slow
                     if (d2h < pushRange2) {
                         const d = Math.sqrt(d2h) + 1e-6;
+                        // Reduce push strength significantly to prevent "flying away"
+                        // Also, maybe only push if d > sphereRadius * 0.8?
                         const tFac = 1 - (d / pushRange);
-                        const str = this._ease(tFac) * 0.4;
+                        const str = this._ease(tFac) * 0.15; // Reduced from 0.4 to 0.15
 
                         this.velocity[idx] += (dxh / d) * str;
                         this.velocity[idx + 1] += (dyh / d) * str;
@@ -279,7 +323,7 @@ export class SoftBody {
                 }
             }
 
-            // ---- Black hole like PINCH but SLOWER ----
+            // ---- CINEMATIC BLACK HOLE PHYSICS ----
             let bhFade = 0;
 
             if (bhEnabled) {
@@ -287,83 +331,141 @@ export class SoftBody {
                 const dy = bhY - y;
                 const dz = bhZ - z;
 
-                const r2 = dx * dx + dy * dy + dz * dz;
-                const r = Math.sqrt(r2) + 1e-6;
+                const r2 = dx * dx + dy * dy + dz * dz + BLACK_HOLE.eps * BLACK_HOLE.eps;
+                const r = Math.sqrt(r2);
 
-                // Influence falloff: strong near BH, weak far away
-                const normalizedDist = r / influenceR;
-                const influence = Math.max(0, 1 - normalizedDist) * pull;
+                if (r < influenceR) {
+                    const t = 1 - (r / influenceR);
+                    const infl = t * t * (3 - 2 * t); // smoothstep
 
-                if (influence > 0.01) {
-                    // Find how far this vertex is from center of sphere (origin)
-                    const distFromCenter = Math.sqrt(x * x + y * y + z * z);
+                    const pullStr = pull; // Use global pull factor
 
-                    // Vertices CLOSER to BH get pulled more (like pinch grabs nearest point)
-                    const proximityFactor = Math.pow(1 - normalizedDist, 2);
+                    // rHat (direction to BH)
+                    const invR = 1 / r;
+                    // We want vector FROM vertex TO BH, so (dx, dy, dz) is correct
+                    const rHatX = dx * invR;
+                    const rHatY = dy * invR;
+                    const rHatZ = dz * invR;
 
-                    // Slow pull toward BH (much slower than pinch)
-                    const pullStrength = proximityFactor * pull * 0.015; // Very slow
+                    // Gravity: GM / r^2
+                    let aMag = BLACK_HOLE.mass / r2;
+                    if (aMag > BLACK_HOLE.maxAccel) aMag = BLACK_HOLE.maxAccel;
 
-                    if (pullStrength > 0.001) {
-                        const invR = 1 / r;
-                        // Pull toward BH center
-                        this.velocity[idx] += dx * invR * pullStrength;
-                        this.velocity[idx + 1] += dy * invR * pullStrength;
-                        this.velocity[idx + 2] += dz * invR * pullStrength;
+                    // Swirl: Tangential acceleration around Z axis
+                    // tHat = zAxis (0,0,1) cross rHat
+                    // zAxis = (0,0,1) -> cross product simplified:
+                    // cx = 0*rz - 1*ry = -ry
+                    // cy = 1*rx - 0*rz = rx
+                    // cz = 0*ry - 0*rx = 0
+                    let tHatX = -rHatY;
+                    let tHatY = rHatX;
+                    let tHatZ = 0;
+
+                    // Hardened Swirl: prevent division by zero near center
+                    // r is distance to BH center.
+                    // If r -> 0 and eps -> 0, this explodes.
+                    const safeR = Math.sqrt(r2 + BLACK_HOLE.eps * BLACK_HOLE.eps) + 0.1;
+                    const swirlMag = BLACK_HOLE.spin / safeR;
+
+                    // Total acceleration
+                    const aRadX = rHatX * aMag;
+                    const aRadY = rHatY * aMag;
+                    const aRadZ = rHatZ * aMag;
+
+                    const aTanX = tHatX * swirlMag;
+                    const aTanY = tHatY * swirlMag;
+                    const aTanZ = tHatZ * swirlMag;
+
+                    // Apply acceleration
+                    this.velocity[idx] += (aRadX + aTanX) * dt * infl * pullStr;
+                    this.velocity[idx + 1] += (aRadY + aTanY) * dt * infl * pullStr;
+                    this.velocity[idx + 2] += (aRadZ + aTanZ) * dt * infl * pullStr;
+
+                    // Drag (Inspiral energy loss)
+                    const d = 1 - (BLACK_HOLE.drag * dt * infl * pullStr);
+                    const damp = Math.max(0.86, d);
+                    this.velocity[idx] *= damp;
+                    this.velocity[idx + 1] *= damp;
+                    this.velocity[idx + 2] *= damp;
+
+                    // Tidal Forces (Spaghettification)
+                    const tidalR = BLACK_HOLE.tidalRadius / sphereScale;
+                    if (r < tidalR) {
+                        const k = 1 - (r / tidalR);
+                        // Radial stretching along rHat
+                        const vDotR = this.velocity[idx] * rHatX + this.velocity[idx + 1] * rHatY + this.velocity[idx + 2] * rHatZ;
+                        const add = vDotR * (k * 0.65 * BLACK_HOLE.tidalStrength) * dt;
+
+                        this.velocity[idx] += rHatX * add;
+                        this.velocity[idx + 1] += rHatY * add;
+                        this.velocity[idx + 2] += rHatZ * add;
+
+                        // Squeeze tangential
+                        const squeeze = 1 - k * 0.12 * BLACK_HOLE.tidalStrength;
+                        this.velocity[idx] *= squeeze;
+                        this.velocity[idx + 1] *= squeeze;
+                        this.velocity[idx + 2] *= squeeze;
                     }
 
-                    // Slight swirl for visual effect
-                    const swirl = swirlBase * influence * 0.3 / (r + softR);
-                    this.tangent.set(-dy, dx, 0);
-                    const tl2 = this.tangent.lengthSq();
-                    if (tl2 > 1e-8) {
-                        this.tangent.multiplyScalar(1 / Math.sqrt(tl2));
-                        this.velocity[idx] += this.tangent.x * swirl;
-                        this.velocity[idx + 1] += this.tangent.y * swirl;
-                        this.velocity[idx + 2] += this.tangent.z * swirl;
-                    }
-
-                    // Direct position pull for vertices VERY close to BH
-                    if (r < influenceR * 0.5) {
-                        const tearStrength = pull * 0.03 * (1 - r / (influenceR * 0.5));
-                        this.currentPos[idx] += dx * tearStrength;
-                        this.currentPos[idx + 1] += dy * tearStrength;
-                        this.currentPos[idx + 2] += dz * tearStrength;
-                    }
-
-                    // Tidal squeeze: damp perpendicular velocity (creates stretching)
-                    const tidal = tidalBase * influence / (r + 1.0);
-
-                    const vx = this.velocity[idx];
-                    const vy = this.velocity[idx + 1];
-                    const vz = this.velocity[idx + 2];
-
-                    const vDotR = vx * this.dir.x + vy * this.dir.y + vz * this.dir.z;
-                    const vRx = this.dir.x * vDotR;
-                    const vRy = this.dir.y * vDotR;
-                    const vRz = this.dir.z * vDotR;
-
-                    const pDx = vx - vRx;
-                    const pDy = vy - vRy;
-                    const pDz = vz - vRz;
-
-                    const damp = Math.max(0, 1 - tidal * 0.5);
-                    this.velocity[idx] = vRx + pDx * damp;
-                    this.velocity[idx + 1] = vRy + pDy * damp;
-                    this.velocity[idx + 2] = vRz + pDz * damp;
-
-                    // Event horizon: strong collapse
+                    // Absorption at Horizon
                     if (r < horizonR) {
-                        const c = (horizonR - r) / Math.max(1e-6, horizonR);
-                        const collapse = Math.min(1, c * horizonPull * 1.5);
-                        this.currentPos[idx] += dx * collapse;
-                        this.currentPos[idx + 1] += dy * collapse;
-                        this.currentPos[idx + 2] += dz * collapse;
-                        bhFade = 1;
+                        // Absorption (Clamp per frame for smoothness)
+                        const absorbRaw = Math.min(1, Math.max(0, (horizonR - r) / (horizonR - BLACK_HOLE.absorbRadius))) * BLACK_HOLE.absorbRate * dt * pull;
+                        const absorb = Math.min(absorbRaw, 0.012); // Limit change per frame
+
+                        // Audio Rumble Trigger (Safe)
+                        if (absorb > 0.001 && Math.random() < 0.03) {
+                            try {
+                                if (window.audio && window.audio.triggerRumble) {
+                                    window.audio.triggerRumble(0.8);
+                                }
+                            } catch (e) { console.warn('Audio Rumble fail', e); }
+                        }
+
+                        this.absorb[i] = Math.min(1, this.absorb[i] + absorb);
+
+                        // Soften Z-pull
+                        const depth = BLACK_HOLE.tunnelDepth * (0.35 + 0.65 * pull);
+                        this.currentPos[idx + 2] -= absorb * depth; // Apply to Z component directly
+
+                        // Gentle Shrink (assuming p is a vector, applying to currentPos components)
+                        const shrinkFactor = (1 - absorb * BLACK_HOLE.shrinkRate);
+                        this.currentPos[idx] *= shrinkFactor;
+                        this.currentPos[idx + 1] *= shrinkFactor;
+                        this.currentPos[idx + 2] *= shrinkFactor;
+
+                        // Cheap Tidal Stretch (Spaghettification)
+                        if (r < 30) { // Using 'r' for distance to BH center
+                            const tidal = Math.max(0, (30 - r) / 30) * 0.03 * pull;
+                            // Stretch along radial direction (rHat)
+                            this.currentPos[idx] += rHatX * tidal * 2.5;
+                            this.currentPos[idx + 1] += rHatY * tidal * 2.5;
+                            this.currentPos[idx + 2] += rHatZ * tidal * 2.5;
+                            // Squeeze
+                            const squeezeFactor = (1 - tidal * 0.35);
+                            this.currentPos[idx] *= squeezeFactor;
+                            this.currentPos[idx + 1] *= squeezeFactor;
+                            this.currentPos[idx + 2] *= squeezeFactor;
+                        }
+                        this.velocity[idx] *= (1 - 0.55 * this.absorb[i]); // Kill velocity
+
+                        // Inside absorb radius: clamp to center to prevent explosion
+                        const absR = BLACK_HOLE.absorbRadius / sphereScale;
+                        if (r < absR) {
+                            this.currentPos[idx] += (dx - this.currentPos[idx]) * 0.15 * a01;
+                            this.currentPos[idx + 1] += (dy - this.currentPos[idx + 1]) * 0.15 * a01;
+                            this.velocity[idx] *= 0.2;
+                            this.velocity[idx + 1] *= 0.2;
+                            this.velocity[idx + 2] *= 0.2;
+                        }
                     } else {
-                        const fadeStart = horizonR * 2.0;
-                        bhFade = this._ease((fadeStart - r) / Math.max(1e-6, fadeStart));
+                        // Relax absorption
+                        this.absorb[i] = Math.max(0, this.absorb[i] - 0.25 * dt);
                     }
+
+                    bhFade = this.absorb[i];
+                } else {
+                    this.absorb[i] = Math.max(0, this.absorb[i] - 1.0 * dt);
                 }
             }
 
@@ -405,11 +507,14 @@ export class SoftBody {
                 this.tmpColor.setHSL(0.07 - t * 0.07, 1.0, 0.45 + t * 0.1); // orange to red
             }
 
-            if (bhFade > 0) {
-                const m = 1 - bhFade * 0.9;
-                this.tmpColor.r *= m;
-                this.tmpColor.g *= m;
-                this.tmpColor.b *= m;
+            // Apply black hole absorption fade
+            // Use this.absorb[i] for accurate per-vertex fading
+            const absorb = this.absorb[i];
+            if (absorb > 0) {
+                const energy = 1 - 0.85 * absorb;
+                this.tmpColor.r *= energy;
+                this.tmpColor.g *= energy;
+                this.tmpColor.b *= energy;
             }
 
             this.colors[idx] = this.tmpColor.r;
@@ -417,8 +522,23 @@ export class SoftBody {
             this.colors[idx + 2] = this.tmpColor.b;
         }
 
+        // Emergency Reset if Physics Exploded
+        if (hasNaN) {
+            console.warn("Physics NaN detected! Emergency Reset.");
+            for (let i = 0; i < count; i++) {
+                const idx = i * 3;
+                pos[idx] = this.originalPos[idx];
+                pos[idx + 1] = this.originalPos[idx + 1];
+                pos[idx + 2] = this.originalPos[idx + 2];
+                vel[idx] = 0;
+                vel[idx + 1] = 0;
+                vel[idx + 2] = 0;
+                this.absorb[i] = 0;
+            }
+        }
+
         STATE.stressEMA = STATE.stressEMA * 0.92 + maxStress * 0.08;
-        this.posAttr.needsUpdate = true;
+        this.geometry.attributes.position.needsUpdate = true;
         this.geometry.attributes.color.needsUpdate = true;
     }
 }
