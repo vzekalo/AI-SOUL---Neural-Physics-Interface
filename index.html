@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="uk">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>AI SOUL v3.0: NEURAL PHYSICS INTERFACE</title>
+
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;900&family=Share+Tech+Mono&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+
+  <!-- MediaPipe (Global Script) -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+</head>
+
+<body>
+  <div id="start-screen">
+    <div class="start-content">
+      <h1 class="hero-title">AI SOUL</h1>
+      <div class="hero-sub">V3.0: NEURAL PHYSICS INTERFACE</div>
+
+      <div class="guide-grid">
+        <div class="guide-item">
+          <span class="guide-icon">✋</span>
+          <span class="guide-label">PUSH</span>
+          <span class="guide-desc">Долоня відштовхує сферу</span>
+        </div>
+        <div class="guide-item">
+          <span class="guide-icon">🤏</span>
+          <span class="guide-label">GRAB</span>
+          <span class="guide-desc">Щіпок тягне та розтягує</span>
+        </div>
+        <div class="guide-item">
+          <span class="guide-icon">✊</span>
+          <span class="guide-label">BLACK HOLE</span>
+          <span class="guide-desc">Кулак 3с → сингулярність</span>
+        </div>
+        <div class="guide-item">
+          <span class="guide-icon">🎤</span>
+          <span class="guide-label">VOICE</span>
+          <span class="guide-desc">Голосові команди</span>
+        </div>
+      </div>
+
+      <button class="btn-start" id="btn-start">NEURAL LINK // CONNECT</button>
+
+      <div class="manifesto">
+        <h3>// FEATURES</h3>
+        <p><strong class="highlight">🧠 NEURAL PHYSICS:</strong> Soft-body деформація в реальному часі з inverse-square
+          гравітацією</p>
+        <p><strong class="highlight">👁️ MEDIAPIPE AI:</strong> Трекінг рук з 21 точкою, адаптивний до освітлення</p>
+        <p><strong class="highlight">⚫ SINGULARITY:</strong> Симуляція чорної діри з tidal forces та event horizon</p>
+        <p><strong class="highlight">🎨 DYNAMIC COLORS:</strong> Кольори реагують на стрес: cyan → yellow → orange → red
+        </p>
+        <p style="font-size:10px; opacity:0.6;">v3.0 • Improved Pinch • Low-Light Mode • Voice Control</p>
+      </div>
+    </div>
+  </div>
+
+  <video id="webcam-feed" playsinline muted autoplay></video>
+  <video id="ar-video" playsinline muted autoplay></video>
+  <div class="color-grade"></div>
+  <div class="scanlines"></div>
+
+  <div class="ui-layer">
+    <div class="header">
+      <div>
+        <div class="title">NEURAL CORE v2.4.1</div>
+        <div class="sub">CALIBRATION: <span style="color:#00f3ff">LOCKED</span> // SIMULATION: <span
+            style="color:#ff0055">GRAVITY</span></div>
+        <div id="hud-status" class="sub" style="color:#ff00ff; font-size:10px; margin-top:4px;"></div>
+      </div>
+      <div class="stats-box">
+        <div>FPS <span id="fps" class="val">0</span></div>
+        <div>Q <span id="q-tier" style="color:#aaa">0</span></div>
+      </div>
+    </div>
+
+    <!-- EXPANDABLE MENU -->
+    <div class="menu-fab-container" id="menu-container">
+      <div class="menu-submenu" id="menu-submenu">
+        <div class="menu-item" id="btn-info" title="Довідка">
+          <span class="menu-item-label">ДОВІДКА</span>
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+            <path
+              d="M11,9H13V7H11M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M11,17H13V11H11V17Z" />
+          </svg>
+        </div>
+        <div class="menu-item" id="btn-ar" title="Прозорість">
+          <span class="menu-item-label">ПРОЗОРІСТЬ</span>
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+            <path
+              d="M12,4.5C7,4.5 2.73,7.61 1,12C2.73,16.39 7,19.5 12,19.5C17,19.5 21.27,16.39 23,12C21.27,7.61 17,4.5 12,4.5M12,17.5C8.96,17.5 6.5,15.04 6.5,12C6.5,8.96 8.96,6.5 12,6.5C15.04,6.5 17.5,8.96 17.5,12C17.5,15.04 15.04,17.5 12,17.5M12,9.5C10.62,9.5 9.5,10.62 9.5,12C9.5,13.38 10.62,14.5 12,14.5C13.38,14.5 14.5,13.38 14.5,12C14.5,10.62 13.38,9.5 12,9.5Z" />
+          </svg>
+        </div>
+        <div class="menu-item" id="btn-lowlight" title="Режим низького освітлення">
+          <span class="menu-item-label">LOW-LIGHT</span>
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+            <path
+              d="M12,3A9,9 0 0,0 3,12A9,9 0 0,0 12,21A9,9 0 0,0 21,12C21,11.5 20.96,11 20.87,10.5C20.6,10 20,10.17 19.35,10.35C18.74,10.5 18.03,10.68 17.28,10.68C14.46,10.68 12.17,8.39 12.17,5.57C12.17,4.5 12.5,3.5 13.03,2.64C12.7,3.24 12.36,3 12,3M12,5A7,7 0 0,1 19,12A7,7 0 0,1 12,19A7,7 0 0,1 5,12A7,7 0 0,1 12,5Z" />
+          </svg>
+        </div>
+      </div>
+      <div class="menu-fab" id="menu-fab">☰</div>
+    </div>
+
+    <!-- INFO PANEL -->
+    <div class="info-panel" id="info-panel">
+      <h3>🎮 КЕРУВАННЯ</h3>
+
+      <h4>✋ БАЗОВІ ЖЕСТИ</h4>
+      <ul>
+        <li><strong>Відкрита долоня</strong> — відштовхує сферу</li>
+        <li><strong>Щіпок 🤏</strong> — чіпляє та тягне частину сфери</li>
+        <li><strong>Два щіпки</strong> — масштаб та обертання</li>
+      </ul>
+
+      <h4>⭕ ЖЕСТИ-КОМАНДИ</h4>
+      <ul>
+        <li><strong>Коло пальцем</strong> — змінює колір</li>
+        <li><strong>Свайп вгору/вниз</strong> — масштаб +/-</li>
+      </ul>
+
+      <h4>🎤 ГОЛОСОВІ КОМАНДИ</h4>
+      <ul>
+        <li><strong>"Запис"</strong> — старт/стоп запису</li>
+        <li><strong>"Більше/Менше"</strong> — масштаб</li>
+        <li><strong>"Колір"</strong> — випадковий колір</li>
+        <li><strong>"Червоний/Синій"</strong> — колір</li>
+        <li><strong>"Режим"</strong> — AR режим</li>
+      </ul>
+
+      <h4>⚫ ЧОРНА ДІРА</h4>
+      <p style="font-size:9px;">Тримай ✊ кулак 3 сек → активує сингулярність. Сфера розривається та засмоктується у
+        воронку.</p>
+
+      <h4>⚙️ РЕЖИМИ</h4>
+      <ul>
+        <li><strong>🌙 LOW-LIGHT</strong> — темні приміщення</li>
+        <li><strong>👁️ AR</strong> — прозорість камери</li>
+      </ul>
+    </div>
+
+    <div class="footer">
+      <div class="log-box" id="chat"></div>
+    </div>
+  </div>
+
+  <canvas id="hud-canvas" class="hud-canvas"></canvas>
+  <canvas id="gl-canvas" class="gl-canvas"></canvas>
+
+  <!-- Entry Point -->
+  <script type="module" src="src/main.js"></script>
+</body>
+
+</html>
