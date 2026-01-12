@@ -1,0 +1,2007 @@
+<!DOCTYPE html>
+<html lang="uk">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>AI SOUL v19.0: BIOMECH NEURAL</title>
+
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;900&family=Share+Tech+Mono&display=swap"
+    rel="stylesheet">
+
+  <style>
+    /* --- CORE --- */
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: #000;
+      font-family: 'Share Tech Mono', monospace;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    /* --- VIDEO --- */
+    #ar-video {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1);
+      z-index: 0;
+      opacity: 0;
+      transition: opacity 1.5s ease;
+      filter: contrast(1.1) brightness(0.9) grayscale(0.2) sepia(0.4) hue-rotate(170deg) blur(0.5px);
+    }
+
+    #webcam-feed {
+      display: none;
+    }
+
+    .color-grade {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      pointer-events: none;
+      background: radial-gradient(circle at center, rgba(255, 100, 50, 0.15) 0%, rgba(0, 20, 30, 0.8) 90%);
+      mix-blend-mode: overlay;
+      opacity: 0;
+      transition: opacity 1s ease;
+    }
+
+    .scanlines {
+      position: absolute;
+      inset: 0;
+      background: repeating-linear-gradient(to bottom, transparent 0, transparent 2px, rgba(0, 0, 0, 0.5) 3px);
+      z-index: 2;
+      opacity: 0;
+      pointer-events: none;
+      mix-blend-mode: soft-light;
+      transition: opacity 1s;
+    }
+
+    body.ar-active #ar-video,
+    body.ar-active .color-grade,
+    body.ar-active .scanlines {
+      opacity: 1;
+    }
+
+    /* --- UI --- */
+    .ui-layer {
+      position: absolute;
+      inset: 0;
+      z-index: 20;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding-top: env(safe-area-inset-top);
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    .header {
+      padding: 20px;
+      background: linear-gradient(180deg, #000, transparent);
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+
+    .title {
+      font-family: 'Orbitron';
+      font-weight: 900;
+      font-size: 18px;
+      color: #fff;
+      text-shadow: 0 0 10px #00f3ff;
+      margin: 0;
+    }
+
+    .sub {
+      font-size: 10px;
+      color: #00f3ff;
+      letter-spacing: 2px;
+      margin-top: 5px;
+      opacity: 0.8;
+    }
+
+    .stats-box {
+      text-align: right;
+      font-size: 10px;
+      color: #aaa;
+    }
+
+    .val {
+      color: #fff;
+      font-weight: bold;
+    }
+
+    .footer {
+      padding: 20px;
+      background: linear-gradient(0deg, #000, transparent);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-end;
+      padding-bottom: 40px;
+    }
+
+    .log-box {
+      width: 90%;
+      max-width: 600px;
+      text-align: center;
+      margin-bottom: 20px;
+      pointer-events: auto;
+      min-height: 50px;
+    }
+
+    .log-msg {
+      background: rgba(5, 10, 15, 0.9);
+      border: 1px solid rgba(0, 243, 255, 0.3);
+      border-top: 2px solid #00f3ff;
+      color: #e0faff;
+      padding: 12px 15px;
+      font-size: 14px;
+      line-height: 1.5;
+      backdrop-filter: blur(4px);
+      box-shadow: 0 0 30px rgba(0, 243, 255, 0.1);
+      border-radius: 4px;
+      animation: textGlitch 0.4s cubic-bezier(0.215, 0.610, 0.355, 1.000);
+      white-space: pre-line;
+    }
+
+    @keyframes textGlitch {
+      0% {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+
+      100% {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    /* --- EXPANDABLE MENU --- */
+    .menu-fab-container {
+      position: absolute;
+      right: 20px;
+      bottom: 40px;
+      z-index: 50;
+      pointer-events: auto;
+    }
+
+    .menu-fab {
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      background: rgba(0, 0, 0, 0.6);
+      border: 1px solid rgba(0, 243, 255, 0.4);
+      color: #00f3ff;
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      backdrop-filter: blur(5px);
+      transition: all 0.3s ease;
+      font-size: 20px;
+    }
+
+    .menu-fab:hover {
+      background: rgba(0, 243, 255, 0.15);
+      box-shadow: 0 0 15px rgba(0, 243, 255, 0.4);
+    }
+
+    .menu-fab.open {
+      transform: rotate(45deg);
+      border-color: #ff0055;
+      color: #ff0055;
+    }
+
+    .menu-submenu {
+      position: absolute;
+      bottom: 60px;
+      right: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(20px);
+      transition: all 0.3s ease;
+    }
+
+    .menu-submenu.open {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateY(0);
+    }
+
+    .menu-item {
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      background: rgba(0, 0, 0, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      color: #fff;
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      backdrop-filter: blur(5px);
+      transition: all 0.3s ease;
+      position: relative;
+    }
+
+    .menu-item:hover {
+      background: rgba(0, 243, 255, 0.15);
+      border-color: #00f3ff;
+      color: #00f3ff;
+      box-shadow: 0 0 15px rgba(0, 243, 255, 0.4);
+    }
+
+    .menu-item.active {
+      border-color: #ff9900;
+      color: #ff9900;
+      background: rgba(255, 153, 0, 0.15);
+    }
+
+    .menu-item-label {
+      position: absolute;
+      right: 60px;
+      white-space: nowrap;
+      background: rgba(0, 0, 0, 0.8);
+      padding: 5px 10px;
+      border-radius: 4px;
+      font-size: 11px;
+      color: #fff;
+      opacity: 0;
+      transition: opacity 0.2s;
+      font-family: 'Share Tech Mono', monospace;
+    }
+
+    .menu-item:hover .menu-item-label {
+      opacity: 1;
+    }
+
+    /* Info Panel */
+    .info-panel {
+      position: absolute;
+      right: 80px;
+      bottom: 40px;
+      width: 280px;
+      max-height: 400px;
+      background: rgba(5, 10, 15, 0.95);
+      border: 1px solid rgba(0, 243, 255, 0.3);
+      border-radius: 8px;
+      padding: 15px;
+      z-index: 60;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateX(20px);
+      transition: all 0.3s ease;
+      overflow-y: auto;
+      backdrop-filter: blur(10px);
+    }
+
+    .info-panel.open {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateX(0);
+    }
+
+    .info-panel h3 {
+      color: #00f3ff;
+      font-size: 14px;
+      margin: 0 0 10px 0;
+      font-family: 'Orbitron', sans-serif;
+      border-bottom: 1px solid rgba(0, 243, 255, 0.3);
+      padding-bottom: 8px;
+    }
+
+    .info-panel h4 {
+      color: #ff9900;
+      font-size: 11px;
+      margin: 12px 0 6px 0;
+      font-family: 'Orbitron', sans-serif;
+    }
+
+    .info-panel p,
+    .info-panel li {
+      color: #aaa;
+      font-size: 10px;
+      line-height: 1.5;
+      margin: 4px 0;
+      font-family: 'Share Tech Mono', monospace;
+    }
+
+    .info-panel ul {
+      padding-left: 15px;
+      margin: 0;
+    }
+
+    .info-panel .cmd {
+      color: #00ff88;
+      background: rgba(0, 255, 136, 0.1);
+      padding: 1px 4px;
+      border-radius: 2px;
+    }
+
+    /* --- START SCREEN --- */
+    #start-screen {
+      position: absolute;
+      inset: 0;
+      background: #020202;
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      overflow-y: auto;
+      padding: 20px;
+      padding-top: 60px;
+    }
+
+    .start-content {
+      width: 100%;
+      max-width: 500px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .hero-title {
+      font-family: 'Orbitron';
+      font-size: 32px;
+      color: #fff;
+      text-shadow: 0 0 25px #00f3ff;
+      margin-bottom: 5px;
+      text-align: center;
+    }
+
+    .hero-sub {
+      color: #00f3ff;
+      font-size: 10px;
+      letter-spacing: 6px;
+      margin-bottom: 40px;
+      text-align: center;
+      opacity: 0.8;
+    }
+
+    .guide-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 10px;
+      width: 100%;
+      margin-bottom: 30px;
+    }
+
+    .guide-item {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 15px 5px;
+      border-radius: 8px;
+      text-align: center;
+    }
+
+    .guide-icon {
+      font-size: 24px;
+      margin-bottom: 10px;
+      display: block;
+    }
+
+    .guide-label {
+      color: #00f3ff;
+      font-size: 11px;
+      font-weight: bold;
+      display: block;
+      margin-bottom: 5px;
+      font-family: 'Orbitron';
+    }
+
+    .guide-desc {
+      color: #888;
+      font-size: 9px;
+      line-height: 1.2;
+    }
+
+    .btn-start {
+      padding: 18px 50px;
+      background: transparent;
+      border: 1px solid #00f3ff;
+      color: #00f3ff;
+      font-family: 'Orbitron';
+      font-size: 16px;
+      letter-spacing: 3px;
+      cursor: pointer;
+      transition: 0.3s;
+      pointer-events: auto;
+      margin-bottom: 40px;
+      width: 100%;
+      max-width: 300px;
+      box-shadow: 0 0 20px rgba(0, 243, 255, 0.1);
+      text-transform: uppercase;
+    }
+
+    .btn-start:hover {
+      background: #00f3ff;
+      color: #000;
+      box-shadow: 0 0 50px #00f3ff;
+    }
+
+    .manifesto {
+      text-align: left;
+      width: 100%;
+      border-top: 1px solid #333;
+      padding-top: 20px;
+      color: #777;
+      font-size: 11px;
+      line-height: 1.6;
+      padding-bottom: 50px;
+    }
+
+    .manifesto h3 {
+      color: #fff;
+      font-family: 'Orbitron';
+      font-size: 12px;
+      margin-bottom: 10px;
+      letter-spacing: 1px;
+    }
+
+    .manifesto p {
+      margin-bottom: 12px;
+    }
+
+    .highlight {
+      color: #00f3ff;
+    }
+
+    /* CANVASES */
+    .gl-canvas {
+      position: absolute;
+      inset: 0;
+      z-index: 5;
+      pointer-events: none;
+    }
+
+    .hud-canvas {
+      position: absolute;
+      inset: 0;
+      z-index: 10;
+      pointer-events: none;
+      transform: scaleX(-1);
+      /* Mirror to match video */
+    }
+  </style>
+
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+
+<body>
+  <div id="start-screen">
+    <div class="start-content">
+      <h1 class="hero-title">AI SOUL</h1>
+      <div class="hero-sub">V2.1: BIOMECH NEURAL</div>
+
+      <div class="guide-grid">
+        <div class="guide-item">
+          <span class="guide-icon">✋</span>
+          <span class="guide-label">PUSH</span>
+          <span class="guide-desc">Долоня деформує сферу</span>
+        </div>
+        <div class="guide-item">
+          <span class="guide-icon">👌</span>
+          <span class="guide-label">GRIP</span>
+          <span class="guide-desc">Пінч захоплює матерію</span>
+        </div>
+        <div class="guide-item">
+          <span class="guide-icon">�</span>
+          <span class="guide-label">MATH</span>
+          <span class="guide-desc">Біомеханіка в реальному часі</span>
+        </div>
+      </div>
+
+      <button class="btn-start" id="btn-start">NEURAL LINK // CONNECT</button>
+
+      <div class="manifesto">
+        <h3>// BIOMECH_CORE</h3>
+        <p><strong class="highlight">AI SOUL</strong> — нейро-інтерфейс нового покоління. Система аналізує біомеханіку
+          рук: кути суглобів, орієнтацію долоні, швидкість руху.</p>
+        <p><strong class="highlight">REAL-TIME ANALYSIS:</strong> MCP/PIP/DIP кути пальців, матриця обертання, відстань
+          до сфери — все обчислюється щокадрово.</p>
+        <p><strong class="highlight">PHANTOM GRIP:</strong> Захоплення зберігається навіть коли рука виходить за кадр.
+        </p>
+        <p style="font-size:10px; opacity:0.6;">TECH: MediaPipe Hands • Three.js • Web Audio API</p>
+      </div>
+    </div>
+  </div>
+
+  <video id="webcam-feed" playsinline muted autoplay></video>
+  <video id="ar-video" playsinline muted autoplay></video>
+  <div class="color-grade"></div>
+  <div class="scanlines"></div>
+
+  <div class="ui-layer">
+    <div class="header">
+      <div>
+        <div class="title">NEURAL CORE v2.1</div>
+        <div class="sub">CALIBRATION: <span style="color:#00f3ff">LOCKED</span> // AUDIO: <span
+            style="color:#00f3ff">AMBIENT</span></div>
+        <div id="hud-status" class="sub" style="color:#ff00ff; font-size:10px; margin-top:4px;"></div>
+      </div>
+      <div class="stats-box">
+        <div>FPS <span id="fps" class="val">0</span></div>
+        <div>Q <span id="q-tier" style="color:#aaa">0</span></div>
+      </div>
+    </div>
+
+    <!-- EXPANDABLE MENU -->
+    <div class="menu-fab-container" id="menu-container">
+      <div class="menu-submenu" id="menu-submenu">
+        <!-- Info Button -->
+        <div class="menu-item" id="btn-info" title="Довідка">
+          <span class="menu-item-label">ДОВІДКА</span>
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+            <path
+              d="M11,9H13V7H11M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M11,17H13V11H11V17Z" />
+          </svg>
+        </div>
+        <!-- Transparency Button -->
+        <div class="menu-item" id="btn-ar" title="Прозорість">
+          <span class="menu-item-label">ПРОЗОРІСТЬ</span>
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+            <path
+              d="M12,4.5C7,4.5 2.73,7.61 1,12C2.73,16.39 7,19.5 12,19.5C17,19.5 21.27,16.39 23,12C21.27,7.61 17,4.5 12,4.5M12,17.5C8.96,17.5 6.5,15.04 6.5,12C6.5,8.96 8.96,6.5 12,6.5C15.04,6.5 17.5,8.96 17.5,12C17.5,15.04 15.04,17.5 12,17.5M12,9.5C10.62,9.5 9.5,10.62 9.5,12C9.5,13.38 10.62,14.5 12,14.5C13.38,14.5 14.5,13.38 14.5,12C14.5,10.62 13.38,9.5 12,9.5Z" />
+          </svg>
+        </div>
+      </div>
+      <!-- Main Menu Button -->
+      <div class="menu-fab" id="menu-fab">☰</div>
+    </div>
+
+    <!-- INFO PANEL -->
+    <div class="info-panel" id="info-panel">
+      <h3>📚 КЕРУВАННЯ СИСТЕМОЮ</h3>
+
+      <h4>🖐️ ЖЕСТИ РУКОЮ</h4>
+      <ul>
+        <li><strong>Долоня відкрита</strong> — штовхає сферу та куби</li>
+        <li><strong>Пінч (щипок)</strong> — захоплює об'єкти</li>
+        <li><strong>Коло пальцем</strong> — змінює колір</li>
+        <li><strong>Свайп вгору/вниз</strong> — масштаб</li>
+        <li><strong>Свайп ліво/право</strong> — обертання</li>
+      </ul>
+
+      <h4>✌️ ДВІ РУКИ</h4>
+      <ul>
+        <li><strong>Два пінчі</strong> — масштаб та обертання одночасно</li>
+        <li>Розводьте руки для збільшення</li>
+        <li>Обертайте для повороту сфери</li>
+      </ul>
+
+      <h4>🎤 ГОЛОСОВІ КОМАНДИ</h4>
+      <ul>
+        <li><span class="cmd">Колір</span> — зміна кольору</li>
+        <li><span class="cmd">Червоний / Синій</span> — вибір кольору</li>
+        <li><span class="cmd">Більше / Менше</span> — розмір</li>
+        <li><span class="cmd">Скинути</span> — скидання</li>
+        <li><span class="cmd">Режим</span> — прозорість</li>
+        <li><span class="cmd">Запис / Стоп</span> — запис</li>
+      </ul>
+
+      <h4>🧊 AR ОБ'ЄКТИ</h4>
+      <p>Кольорові куби навколо сфери можна штовхати та захоплювати пінчем.</p>
+
+      <h4>🧠 НЕЙРОННА МЕРЕЖА</h4>
+      <p>Всередині сфери симуляція нейронів з синапсами. Реагує на вашу активність.</p>
+    </div>
+    <div class="footer">
+      <div class="log-box" id="chat"></div>
+    </div>
+  </div>
+
+  <canvas id="hud-canvas" class="hud-canvas"></canvas>
+  <canvas id="gl-canvas" class="gl-canvas"></canvas>
+
+  <script src="soul_db.js"></script>
+
+  <script>
+    "use strict";
+
+    // DEBUG: Global Error Handler
+    window.onerror = function (msg, url, line) {
+      // alert("System Error: " + msg + "\nLine: " + line);
+      return false;
+    };
+
+    const $ = (id) => document.getElementById(id);
+    function clamp01(x) { return Math.max(0, Math.min(1, x)); }
+
+    const el = {
+      start: $("start-screen"),
+      btnStart: $("btn-start"),
+      vRaw: $("webcam-feed"),
+      vAR: $("ar-video"),
+      hud: $("hud-canvas"),
+      gl: $("gl-canvas"),
+      chat: $("chat"),
+      fps: $("fps"),
+      qTier: $("q-tier"),
+      // Menu elements
+      menuFab: $("menu-fab"),
+      menuSubmenu: $("menu-submenu"),
+      btnAr: $("btn-ar"),
+      btnInfo: $("btn-info"),
+      infoPanel: $("info-panel"),
+      hudStatus: $("hud-status")
+    };
+
+    // Fallback for DB
+    const LinePicker = window.LinePicker || { next(t) { return "Система активна."; } };
+
+    /* ==========================
+       🔊 AUDIO ENGINE (QUIET)
+    ========================== */
+    const AudioEngine = {
+      ctx: null, masterGain: null, filter: null, voices: [],
+      async init() {
+        if (this.ctx) return;
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        this.ctx = new AudioContext();
+        this.masterGain = this.ctx.createGain();
+        this.masterGain.gain.value = 0.03; // Quiet
+        this.filter = this.ctx.createBiquadFilter();
+        this.filter.type = "lowpass";
+        this.filter.frequency.value = 350;
+        const lfo = this.ctx.createOscillator();
+        lfo.frequency.value = 0.1;
+        const lfoGain = this.ctx.createGain();
+        lfoGain.gain.value = 200;
+        lfo.connect(lfoGain); lfoGain.connect(this.filter.frequency); lfo.start();
+        this.filter.connect(this.masterGain);
+        this.masterGain.connect(this.ctx.destination);
+        try { await this.ctx.resume(); } catch (_) { }
+        this._createVoice("sawtooth", 55, 0.5, 0.05);
+        this._createVoice("triangle", 110, 0.3, 0.08);
+        this._createVoice("sine", 165, 0.2, 0.1);
+      },
+      _createVoice(type, freq, vol, rate) {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        const lfo = this.ctx.createOscillator();
+        const lfoGain = this.ctx.createGain();
+        osc.type = type; osc.frequency.value = freq;
+        lfo.type = "sine"; lfo.frequency.value = rate; lfoGain.gain.value = 4;
+        lfo.connect(lfoGain); lfoGain.connect(osc.frequency);
+        const panner = this.ctx.createStereoPanner();
+        gain.gain.value = vol;
+        osc.connect(gain); gain.connect(panner); panner.connect(this.filter);
+        osc.start(); lfo.start();
+        this.voices.push({ osc, lfo });
+      },
+      triggerSwell() {
+        if (!this.ctx || !this.masterGain) return;
+        const now = this.ctx.currentTime;
+        this.masterGain.gain.cancelScheduledValues(now);
+        this.masterGain.gain.linearRampToValueAtTime(0.06, now + 0.5);
+        this.masterGain.gain.linearRampToValueAtTime(0.03, now + 3.0);
+      },
+      destroy() {
+        if (!this.ctx) return;
+        try { this.voices.forEach(v => { v.osc.stop(); v.lfo.stop(); }); } catch (_) { }
+        this.ctx.close();
+      }
+    };
+
+    /* ==========================
+       CONFIG & STATE
+    ========================== */
+    const CFG = {
+      radius: 8, spring: 0.035, pushRange: 7.8, pinchThreshold: 0.1,
+      gripRange: 35, gripStrength: 0.95, ghostTimeout: 3000,
+      // Calibration defaults (can be adjusted)
+      handScale: 1.0
+    };
+    const STATE = {
+      hands: {}, ghosts: {}, grabs: {},
+      ar: false, lastChatAt: 0, stressEMA: 0, streamReady: false,
+      tier: 0, fpsAvg: 60, sphereVelocity: new THREE.Vector3(),
+      // New features
+      recording: false, recordedPath: [],
+      lastGesture: null, gestureTimeout: 0,
+      twoHandData: null,
+      voiceActive: false,
+      calibrated: false, calibrationData: null
+    };
+    const QUALITY = [
+      { name: "0", dprCap: 2.0, mpEvery: 1, hudEvery: 1, physicsEvery: 1, sparkSpawn: 6, sparkCount: 140 },
+      { name: "1", dprCap: 2.0, mpEvery: 2, hudEvery: 1, physicsEvery: 1, sparkSpawn: 4, sparkCount: 120 },
+      { name: "2", dprCap: 1.75, mpEvery: 3, hudEvery: 1, physicsEvery: 2, sparkSpawn: 2, sparkCount: 90 }
+    ];
+    function applyTier(tier) {
+      STATE.tier = Math.max(0, Math.min(QUALITY.length - 1, tier));
+      el.qTier.textContent = QUALITY[STATE.tier].name;
+    }
+
+    /* ==========================
+       HAPTIC FEEDBACK
+    ========================== */
+    const HapticEngine = {
+      supported: 'vibrate' in navigator,
+      pulse(ms = 50) {
+        if (this.supported) navigator.vibrate(ms);
+      },
+      pattern(pattern) {
+        if (this.supported) navigator.vibrate(pattern);
+      },
+      onGrip() { this.pulse(30); },
+      onPush() { this.pattern([10, 20, 10]); },
+      onGesture() { this.pattern([50, 30, 50]); }
+    };
+
+    /* ==========================
+       VOICE COMMANDS
+    ========================== */
+    const VoiceCommand = {
+      recognition: null,
+      commands: {
+        'запис': () => { STATE.recording = !STATE.recording; if (!STATE.recording) postLine('> Запис зупинено'); else postLine('> Запис...'); },
+        'стоп': () => { STATE.recording = false; postLine('> Стоп'); },
+        'скинути': () => { sphere.scale.setScalar(1); postLine('> Скинути розмір'); },
+        'більше': () => { sphere.scale.multiplyScalar(1.2); HapticEngine.pulse(30); },
+        'менше': () => { sphere.scale.multiplyScalar(0.8); HapticEngine.pulse(30); },
+        'колір': () => {
+          const hue = Math.random();
+          mat.color.setHSL(hue, 1, 0.5);
+          arObjects.forEach(obj => obj.material.color.setHSL((hue + 0.5) % 1.0, 1, 0.5));
+          postLine('> Колір змінено');
+        },
+        'червоний': () => { mat.color.setHex(0xff0000); postLine('> Червоний'); },
+        'синій': () => { mat.color.setHex(0x0000ff); postLine('> Синій'); },
+        'зелений': () => { mat.color.setHex(0x00ff00); postLine('> Зелений'); },
+        'режим': () => toggleAR()
+      },
+      init() {
+        if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) return;
+        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        this.recognition = new SR();
+        this.recognition.continuous = true;
+        this.recognition.interimResults = false;
+        this.recognition.lang = 'uk-UA';
+        this.recognition.onresult = (e) => {
+          const last = e.results[e.results.length - 1];
+          if (last.isFinal) {
+            const cmd = last[0].transcript.toLowerCase().trim();
+            for (const key in this.commands) {
+              if (cmd.includes(key)) {
+                this.commands[key]();
+                HapticEngine.onGesture();
+                break;
+              }
+            }
+          }
+        };
+        this.recognition.onerror = () => { };
+      },
+      start() {
+        if (this.recognition) {
+          try { this.recognition.start(); STATE.voiceActive = true; } catch (_) { }
+        }
+      },
+      stop() {
+        if (this.recognition) {
+          try { this.recognition.stop(); STATE.voiceActive = false; } catch (_) { }
+        }
+      }
+    };
+
+    /* ==========================
+       GESTURE RECOGNITION
+    ========================== */
+    const GestureRecognizer = {
+      history: [],
+      maxHistory: 30,
+
+      addPoint(x, y) {
+        this.history.push({ x, y, t: Date.now() });
+        if (this.history.length > this.maxHistory) this.history.shift();
+      },
+
+      recognize() {
+        if (this.history.length < 15) return null;
+        const now = Date.now();
+        if (now - STATE.gestureTimeout < 1000) return null;
+
+        const pts = this.history.slice(-15);
+
+        // Detect CIRCLE gesture
+        const center = pts.reduce((a, p) => ({ x: a.x + p.x / pts.length, y: a.y + p.y / pts.length }), { x: 0, y: 0 });
+        const avgDist = pts.reduce((a, p) => a + Math.hypot(p.x - center.x, p.y - center.y), 0) / pts.length;
+        const variance = pts.reduce((a, p) => a + Math.abs(Math.hypot(p.x - center.x, p.y - center.y) - avgDist), 0) / pts.length;
+
+        if (variance < avgDist * 0.3 && avgDist > 30) {
+          // Check if path is closed (start near end)
+          const start = pts[0], end = pts[pts.length - 1];
+          if (Math.hypot(end.x - start.x, end.y - start.y) < avgDist * 0.5) {
+            STATE.gestureTimeout = now;
+            return 'circle';
+          }
+        }
+
+        // Detect SWIPE gesture
+        const dx = pts[pts.length - 1].x - pts[0].x;
+        const dy = pts[pts.length - 1].y - pts[0].y;
+        const swipeDist = Math.hypot(dx, dy);
+        if (swipeDist > 150) {
+          STATE.gestureTimeout = now;
+          if (Math.abs(dx) > Math.abs(dy)) return dx > 0 ? 'swipe-right' : 'swipe-left';
+          return dy > 0 ? 'swipe-down' : 'swipe-up';
+        }
+
+        return null;
+      },
+
+      clear() { this.history = []; }
+    };
+
+    /* ==========================
+       RECORDING SYSTEM
+    ========================== */
+    const RecordingSystem = {
+      data: [],
+      maxFrames: 300, // 10 seconds at 30fps
+
+      addFrame(hands) {
+        if (!STATE.recording) return;
+        const frame = { t: Date.now(), hands: JSON.parse(JSON.stringify(hands)) };
+        this.data.push(frame);
+        if (this.data.length > this.maxFrames) {
+          STATE.recording = false;
+          postLine('> Max recording length reached');
+        }
+      },
+
+      clear() { this.data = []; },
+
+      getStats() {
+        return { frames: this.data.length, duration: this.data.length > 1 ? (this.data[this.data.length - 1].t - this.data[0].t) / 1000 : 0 };
+      }
+    };
+
+    /* ==========================
+       TWO-HAND INTERACTION
+    ========================== */
+    const TwoHandInteraction = {
+      lastDist: null,
+      lastAngle: null,
+
+      update(hand0, hand1) {
+        if (!hand0 || !hand1) {
+          this.lastDist = null;
+          this.lastAngle = null;
+          return null;
+        }
+
+        const dx = hand1.pos.x - hand0.pos.x;
+        const dy = hand1.pos.y - hand0.pos.y;
+        const dist = Math.hypot(dx, dy);
+        const angle = Math.atan2(dy, dx);
+
+        const result = { scale: 1, rotate: 0 };
+
+        if (this.lastDist !== null) {
+          const scaleDelta = dist / this.lastDist;
+          if (scaleDelta > 0.8 && scaleDelta < 1.2) {
+            result.scale = scaleDelta;
+          }
+        }
+
+        if (this.lastAngle !== null) {
+          result.rotate = angle - this.lastAngle;
+        }
+
+        this.lastDist = dist;
+        this.lastAngle = angle;
+
+        return result;
+      }
+    };
+
+    /* ==========================
+       CALIBRATION
+    ========================== */
+    const Calibration = {
+      samples: [],
+
+      addSample(handSpan) {
+        this.samples.push(handSpan);
+        if (this.samples.length >= 30) {
+          this.finish();
+        }
+      },
+
+      finish() {
+        if (this.samples.length < 10) return;
+        const avg = this.samples.reduce((a, b) => a + b, 0) / this.samples.length;
+        CFG.handScale = 0.15 / avg; // Normalize to expected hand span
+        STATE.calibrated = true;
+        STATE.calibrationData = { avgSpan: avg, scale: CFG.handScale };
+        postLine(`> Calibrated: scale ${CFG.handScale.toFixed(2)}`);
+        this.samples = [];
+      },
+
+      reset() {
+        this.samples = [];
+        CFG.handScale = 1.0;
+        STATE.calibrated = false;
+      }
+    };
+
+    /* ==========================
+       AR OBJECTS
+    ========================== */
+    const arObjects = [];
+
+    /* ==========================
+       THREE.JS
+    ========================== */
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.z = (window.innerWidth < 800) ? 50 : 35;
+    const renderer = new THREE.WebGLRenderer({ canvas: el.gl, alpha: true, antialias: true });
+
+    // const core = new THREE.Mesh(...); // Removed by user request
+    // scene.add(core);
+
+    const geo = new THREE.IcosahedronGeometry(CFG.radius, window.innerWidth < 800 ? 4 : 5);
+    const pos = geo.attributes.position;
+    const origPos = pos.array.slice();
+    const colors = new Float32Array(pos.count * 3);
+    geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+    const mat = new THREE.MeshBasicMaterial({ vertexColors: true, wireframe: true, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending });
+    const sphere = new THREE.Mesh(geo, mat);
+    scene.add(sphere);
+
+    /* ==========================
+       NEURAL NETWORK (INSIDE SPHERE)
+    ========================== */
+    const neurons = [];
+    const synapses = [];
+    const NEURON_COUNT = 15;
+
+    function initNeuralNetwork() {
+      const neuronGeo = new THREE.IcosahedronGeometry(0.3, 1);
+
+      for (let i = 0; i < NEURON_COUNT; i++) {
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos(2 * Math.random() - 1);
+        const r = (0.1 + Math.random() * 0.6) * CFG.radius;
+
+        const x = r * Math.sin(phi) * Math.cos(theta);
+        const y = r * Math.sin(phi) * Math.sin(theta);
+        const z = r * Math.cos(phi);
+
+        const neuronMat = new THREE.MeshBasicMaterial({ color: 0x00f3ff, wireframe: true, transparent: true, opacity: 0.6 });
+        const neuron = new THREE.Mesh(neuronGeo, neuronMat);
+        neuron.position.set(x, y, z);
+        neuron.userData = {
+          basePos: new THREE.Vector3(x, y, z),
+          unitDir: new THREE.Vector3(x, y, z).normalize(),
+          initR: r,
+          pulsePhase: Math.random() * Math.PI * 2,
+          activity: 0
+        };
+        scene.add(neuron);
+        neurons.push(neuron);
+      }
+
+      const synapseMat = new THREE.LineBasicMaterial({ color: 0x00f3ff, transparent: true, opacity: 0.15, blending: THREE.AdditiveBlending });
+      for (let i = 0; i < neurons.length; i++) {
+        for (let j = i + 1; j < neurons.length; j++) {
+          const dist = neurons[i].position.distanceTo(neurons[j].position);
+          if (dist < 5) {
+            const geometry = new THREE.BufferGeometry().setFromPoints([neurons[i].position.clone(), neurons[j].position.clone()]);
+            const line = new THREE.Line(geometry, synapseMat.clone());
+            line.userData = { from: i, to: j, baseDist: dist };
+            scene.add(line);
+            synapses.push(line);
+          }
+        }
+      }
+    }
+    initNeuralNetwork();
+
+    function updateNeuralNetwork(stressLevel) {
+      const t = Date.now() * 0.001;
+      const sphereScale = sphere.scale.x;
+      neurons.forEach((neuron, i) => {
+        const pulse = Math.sin(t * 2 + neuron.userData.pulsePhase) * 0.5 + 0.5;
+        const activity = stressLevel * 1.0 + pulse * 0.2; // Less aggressive
+        const scale = 1 + activity * 0.25; // Keep inside sphere
+        neuron.scale.setScalar(scale);
+
+        const hue = (0.5 - activity * 0.2 + t * 0.1) % 1; // RGB Cycle
+        neuron.material.color.setHSL(hue, 1, 0.5 + activity * 0.2);
+        neuron.material.opacity = 0.4 + activity * 0.4;
+
+        const r = neuron.userData.initR * sphereScale;
+        const offset = Math.sin(t * 3 + i) * 0.1;
+        neuron.position.copy(neuron.userData.unitDir).multiplyScalar(r + offset).add(sphere.position);
+      });
+      synapses.forEach((synapse, i) => {
+        const pulse = Math.sin(t * 4 + i * 0.5) * 0.5 + 0.5;
+        const fireIntensity = stressLevel + pulse * 0.2;
+        synapse.material.opacity = 0.05 + fireIntensity * 0.1;
+      });
+    }
+
+    // Initialize AR Objects (floating cubes around sphere)
+    function initARObjects() {
+      const cubeGeo = new THREE.BoxGeometry(1.5, 1.5, 1.5);
+      for (let i = 0; i < 6; i++) {
+        const cubeMat = new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true, transparent: true, opacity: 0.6 });
+        const cube = new THREE.Mesh(cubeGeo, cubeMat);
+        const angle = (i / 6) * Math.PI * 2;
+        cube.position.set(Math.cos(angle) * 18, Math.sin(angle) * 18, 0);
+        cube.userData = {
+          orbitAngle: angle,
+          orbitSpeed: 0.005 + Math.random() * 0.005, // Slower
+          grabbed: false,
+          velocity: new THREE.Vector3(),
+          lastPos: new THREE.Vector3(),
+          neuronIdx: Math.floor(Math.random() * NEURON_COUNT) // Link to specific neuron
+        };
+        scene.add(cube);
+        arObjects.push(cube);
+
+        // link1: To Sphere Center
+        const linGeo1 = new THREE.BufferGeometry().setFromPoints([cube.position, sphere.position]);
+        const line1 = new THREE.Line(linGeo1, new THREE.LineBasicMaterial({ color: 0x00f3ff, transparent: true, opacity: 0.15 }));
+        scene.add(line1);
+        cube.userData.linkLine = line1;
+
+        // link2: To Neuron
+        const linGeo2 = new THREE.BufferGeometry().setFromPoints([cube.position, sphere.position]);
+        const line2 = new THREE.Line(linGeo2, new THREE.LineBasicMaterial({ color: 0xff00ff, transparent: true, opacity: 0.05 }));
+        scene.add(line2);
+        cube.userData.neuronLine = line2;
+      }
+    }
+    initARObjects();
+
+    let pGeo, pPos, pLife, pVel, sparks;
+    let pCount = 0, pIdx = 0;
+    function initSparksForTier(tier) {
+      if (sparks) scene.remove(sparks);
+      const q = QUALITY[tier]; pCount = q.sparkCount; pIdx = 0;
+      pGeo = new THREE.BufferGeometry();
+      pPos = new Float32Array(pCount * 3); pLife = new Float32Array(pCount).fill(0);
+      pVel = Array.from({ length: pCount }, () => new THREE.Vector3());
+      pGeo.setAttribute("position", new THREE.BufferAttribute(pPos, 3));
+      sparks = new THREE.Points(pGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.6, transparent: true, opacity: 0.9 }));
+      scene.add(sparks);
+    }
+    function spawnSparksAt(worldPos, count) {
+      for (let i = 0; i < count; i++) {
+        pIdx = (pIdx + 1) % pCount;
+        const idx = pIdx * 3;
+        pPos[idx] = worldPos.x; pPos[idx + 1] = worldPos.y; pPos[idx + 2] = worldPos.z;
+        pVel[pIdx].set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(0.7);
+        pLife[pIdx] = 1;
+      }
+      sparks.geometry.attributes.position.needsUpdate = true;
+    }
+    function updateSparks() {
+      let any = false;
+      for (let i = 0; i < pCount; i++) {
+        if (pLife[i] > 0) {
+          any = true; pLife[i] -= 0.06;
+          const idx = i * 3;
+          pPos[idx] += pVel[i].x; pPos[idx + 1] += pVel[i].y; pPos[idx + 2] += pVel[i].z;
+          if (pLife[i] <= 0) pPos[idx] = 9999;
+        }
+      }
+      if (any) sparks.geometry.attributes.position.needsUpdate = true;
+    }
+
+    /* ==========================
+       HUD & TRACKING (FIXED MAPPING)
+    ========================== */
+    const ctx = el.hud.getContext("2d");
+
+    function getScreenPos(normX, normY) {
+      const vid = el.vRaw;
+      const W = window.innerWidth;
+      const H = window.innerHeight;
+
+      // Fallback if video not ready
+      if (vid.readyState < 2) {
+        return { x: normX * W, y: normY * H };
+      }
+
+      const vidW = vid.videoWidth;
+      const vidH = vid.videoHeight;
+
+      // For object-fit: cover - use the LARGER scale factor
+      const scaleW = W / vidW;
+      const scaleH = H / vidH;
+      const scale = Math.max(scaleW, scaleH);
+
+      // Calculate scaled video dimensions
+      const scaledW = vidW * scale;
+      const scaledH = vidH * scale;
+
+      // Calculate crop (excess is cropped from both sides equally)
+      const cropX = (scaledW - W) / 2;
+      const cropY = (scaledH - H) / 2;
+
+      // Map normalized coords to screen position, accounting for crop
+      // NO manual mirroring - CSS transform: scaleX(-1) handles this
+      const x = normX * scaledW - cropX;
+      const y = normY * scaledH - cropY;
+
+      return { x, y };
+    }
+
+    function get3DFromScreen(sx, sy) {
+      // Mirror X for 3D physics (since getScreenPos no longer mirrors)
+      const mirroredX = window.innerWidth - sx;
+      const ndcX = (mirroredX / window.innerWidth) * 2 - 1;
+      const ndcY = -(sy / window.innerHeight) * 2 + 1;
+      const dist = camera.position.z;
+      const vFOV = THREE.Math.degToRad(camera.fov);
+      const h = 2 * Math.tan(vFOV / 2) * dist;
+      const w = h * camera.aspect;
+      return new THREE.Vector3(ndcX * (w / 2), ndcY * (h / 2), 0);
+    }
+
+    // ADVANCED AI PREDICTION HUD with Real Biomechanics
+    const handHistory = {};
+    const HISTORY_LENGTH = 12;
+    const smoothedVel = {};  // Smoothed velocity per hand
+
+    function drawTechHUD(lm, id, isPinch, hand) {
+      const t = Date.now() * 0.001;
+      const col = isPinch ? "#ff0055" : "#00f3ff";
+      const colWarn = "#ff9900";
+      const colDim = isPinch ? "rgba(255,0,85,0.12)" : "rgba(0,243,255,0.12)";
+      const colAccent = "#00ff88";
+
+      ctx.strokeStyle = col;
+      ctx.fillStyle = col;
+      ctx.lineWidth = 1.5;
+      ctx.font = "9px 'Share Tech Mono'";
+
+      const points = lm.map(p => getScreenPos(p.x, p.y));
+      const raw = lm;  // Keep raw normalized coords for calculations
+
+      // Store history with smoothing
+      if (!handHistory[id]) handHistory[id] = [];
+      if (!smoothedVel[id]) smoothedVel[id] = { x: 0, y: 0 };
+
+      const now = { points: points.map(p => ({ x: p.x, y: p.y })), raw: raw.map(p => ({ x: p.x, y: p.y, z: p.z })), t };
+      handHistory[id].push(now);
+      if (handHistory[id].length > HISTORY_LENGTH) handHistory[id].shift();
+      const history = handHistory[id];
+
+      // === 1. SKELETON ===
+      ctx.globalAlpha = 0.7;
+      ctx.lineWidth = 2;
+      const cons = [[0, 1], [1, 2], [2, 3], [3, 4], [0, 5], [5, 6], [6, 7], [7, 8], [0, 9], [9, 10], [10, 11], [11, 12], [0, 13], [13, 14], [14, 15], [15, 16], [0, 17], [17, 18], [18, 19], [19, 20]];
+      ctx.beginPath();
+      for (const c of cons) {
+        ctx.moveTo(points[c[0]].x, points[c[0]].y);
+        ctx.lineTo(points[c[1]].x, points[c[1]].y);
+      }
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.lineWidth = 1.5;
+
+      const p0 = points[0], p4 = points[4], p8 = points[8], p12 = points[12], p20 = points[20];
+
+      // === 2. REAL FINGER SEGMENT ANALYSIS ===
+      // Calculate actual finger lengths (normalized units → approx mm)
+      const fingerNames = ['Thumb', 'Index', 'Middle', 'Ring', 'Pinky'];
+      const fingerBases = [1, 5, 9, 13, 17];
+      const fingerLengths = [];
+
+      fingerBases.forEach((base, fi) => {
+        let length = 0;
+        for (let j = 0; j < 3; j++) {
+          const p1 = raw[base + j], p2 = raw[base + j + 1];
+          length += Math.hypot(p2.x - p1.x, p2.y - p1.y, p2.z - p1.z);
+        }
+        fingerLengths.push(length);
+      });
+
+      // === 3. JOINT ANGLES (real biomechanics) ===
+      // MCP angle for index finger (knuckle flexion)
+      const calcAngle = (a, b, c) => {
+        const ba = { x: a.x - b.x, y: a.y - b.y };
+        const bc = { x: c.x - b.x, y: c.y - b.y };
+        const dot = ba.x * bc.x + ba.y * bc.y;
+        const magA = Math.hypot(ba.x, ba.y);
+        const magB = Math.hypot(bc.x, bc.y);
+        return Math.acos(Math.max(-1, Math.min(1, dot / (magA * magB)))) * 180 / Math.PI;
+      };
+
+      const indexMCP = calcAngle(raw[0], raw[5], raw[6]);
+      const indexPIP = calcAngle(raw[5], raw[6], raw[7]);
+      const indexDIP = calcAngle(raw[6], raw[7], raw[8]);
+
+      // === 4. HAND ORIENTATION ===
+      const palmVec = { x: raw[9].x - raw[0].x, y: raw[9].y - raw[0].y };
+      const handAngle = Math.atan2(palmVec.y, palmVec.x) * 180 / Math.PI;
+      const palmSpread = Math.hypot(raw[5].x - raw[17].x, raw[5].y - raw[17].y);
+
+      // === 5. VELOCITY with EMA smoothing ===
+      if (history.length >= 2) {
+        const prev = history[history.length - 2];
+        const dt = (now.t - prev.t) || 0.016;
+        const rawVx = (now.raw[8].x - prev.raw[8].x) / dt;
+        const rawVy = (now.raw[8].y - prev.raw[8].y) / dt;
+        smoothedVel[id].x = smoothedVel[id].x * 0.85 + rawVx * 0.15;
+        smoothedVel[id].y = smoothedVel[id].y * 0.85 + rawVy * 0.15;
+      }
+      const vel = smoothedVel[id];
+      const speed = Math.hypot(vel.x, vel.y);
+
+      // === 6. DISTANCE TO SPHERE CENTER ===
+      const sphereCenter = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+      const distToSphere = Math.hypot(p8.x - sphereCenter.x, p8.y - sphereCenter.y);
+      const inSphereRange = distToSphere < 150;
+
+      // === DRAW UI ELEMENTS ===
+
+      // Reticle removed by user request
+
+      // Joint angle indicators at index finger (REAL-TIME)
+      ctx.globalAlpha = 0.9;
+      ctx.font = "bold 12px 'Share Tech Mono'";
+      ctx.fillStyle = "#00ff88";
+      ctx.fillText(`${indexMCP.toFixed(0)}°`, points[5].x + 10, points[5].y - 2);
+      ctx.fillText(`${indexPIP.toFixed(0)}°`, points[6].x + 10, points[6].y - 2);
+      ctx.fillText(`${indexDIP.toFixed(0)}°`, points[7].x + 10, points[7].y - 2);
+      ctx.fillStyle = col;
+      ctx.globalAlpha = 1;
+
+      // Pinch line removed
+
+      // Velocity arrow (only if moving significantly)
+      if (speed > 0.3) {
+        const vScale = Math.min(speed * 30, 50);
+        const vx = vel.x * vScale * 0.5;
+        const vy = vel.y * vScale * 0.5;
+
+        ctx.strokeStyle = colWarn;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(p0.x, p0.y);
+        ctx.lineTo(p0.x + vx, p0.y + vy);
+        ctx.stroke();
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = col;
+      }
+
+      // === DATA PANEL (near palm) ===
+      const panelX = p0.x - 85, panelY = p0.y - 50;
+      ctx.fillStyle = colDim;
+      ctx.font = "8px 'Share Tech Mono'";
+
+      // Hand orientation matrix (real values)
+      const cosA = Math.cos(handAngle * Math.PI / 180);
+      const sinA = Math.sin(handAngle * Math.PI / 180);
+      ctx.fillText(`ROT [${cosA.toFixed(2)} ${(-sinA).toFixed(2)}]`, panelX, panelY);
+      ctx.fillText(`    [${sinA.toFixed(2)}  ${cosA.toFixed(2)}]`, panelX, panelY + 10);
+
+      // Key metrics
+      ctx.fillStyle = col;
+      ctx.fillText(`θ:${handAngle.toFixed(0)}° v:${(speed * 10).toFixed(1)}`, panelX, panelY + 24);
+      ctx.fillText(`spread:${(palmSpread * 100).toFixed(0)}`, panelX, panelY + 34);
+
+      // Sphere proximity indicator
+      if (inSphereRange) {
+        ctx.fillStyle = colAccent;
+        ctx.fillText(`⦿ SPHERE: ${distToSphere.toFixed(0)}px`, panelX, panelY + 48);
+      }
+
+      // Tracking ID
+      ctx.fillStyle = col;
+      ctx.font = "9px 'Share Tech Mono'";
+      ctx.fillText(`ID:${id}`, p8.x + 18, p8.y + 4);
+
+      // === FINGER LENGTH BARS (Palm Scales) ===
+      ctx.globalAlpha = 0.8;
+      fingerLengths.forEach((len, i) => {
+        const barX = p0.x + 40;
+        const barY = p0.y + 20 + i * 10; // Lower
+        const barW = len * 200; // Wider
+        const hue = clamp01(0.6 - len * 2.0); // Color by flexion (Cyan -> Red)
+        ctx.fillStyle = `hsl(${hue * 360}, 100%, 50%)`;
+        ctx.fillRect(barX, barY, barW, 6);
+      });
+
+      // Finger Math (Sci-Fi)
+      const tips = [4, 8, 12, 16, 20];
+      const fNames = ['T', 'I', 'M', 'R', 'P'];
+      tips.forEach((idx, i) => {
+        const p = points[idx];
+        const dist = Math.hypot(p.x - p0.x, p.y - p0.y);
+        // Index finger dimmer
+        ctx.fillStyle = (i === 1) ? "rgba(0, 243, 255, 0.3)" : "rgba(0, 243, 255, 0.9)";
+        ctx.font = "8px 'Share Tech Mono'";
+        ctx.fillText(`${fNames[i]}:${dist.toFixed(0)}`, p.x + 8, p.y - 8);
+        ctx.fillText(`ID:${Math.floor(Math.random() * 999)}`, p.x + 8, p.y);
+      });
+
+      // === 7. SACRED GEOMETRY (Flower of Life - Fist Trigger) ===
+      // Improved Metric: Avg Tip Dist to Wrist / Hand Scale
+      const handScale = Math.hypot(points[9].x - points[0].x, points[9].y - points[0].y) || 100;
+      let avgTipDist = 0;
+      [8, 12, 16, 20].forEach(i => avgTipDist += Math.hypot(points[i].x - points[0].x, points[i].y - points[0].y));
+      avgTipDist /= 4;
+
+      const fistRatio = avgTipDist / handScale; // ~2.0 open, ~0.6 closed
+      // Trigger range: 1.0 down to 0.5
+      const fistFactor = clamp01((1.1 - fistRatio) * 2.0);
+
+      if (fistFactor > 0.01) {
+        const now = Date.now();
+        if (!STATE.lastTextTime || now - STATE.lastTextTime > 2500) {
+          let narrativeText = '';
+          if (fistFactor > 0.95 && STATE.clenchStage !== 3) {
+            narrativeText = LinePicker.next('fist_tremble');
+            STATE.clenchStage = 3; STATE.lastTextTime = now;
+          } else if (fistFactor > 0.5 && fistFactor <= 0.95 && STATE.clenchStage !== 2) {
+            narrativeText = LinePicker.next('fist_squeeze');
+            STATE.clenchStage = 2; STATE.lastTextTime = now;
+          } else if (fistFactor < 0.4 && STATE.clenchStage !== 0) {
+            STATE.clenchStage = 0;
+          }
+          if (narrativeText) postLine(narrativeText.replace(/\n/g, ' '));
+        }
+
+        const cx = points[9].x; const cy = points[9].y;
+        const r = 50 * fistFactor;
+
+        // RGB Cycling Hue
+        const hue = (t * 0.3) % 1;
+        ctx.strokeStyle = `hsl(${hue * 360}, 100%, 50%)`;
+        ctx.lineWidth = 1.0;
+
+        // === CLENCH TIMER FOR TUNNEL (At strong clench 70%+) ===
+        let tunnelFactor = 0;
+        if (fistFactor > 0.7) {
+          if (!STATE.fistHoldStart) STATE.fistHoldStart = now;
+          const holdDuration = (now - STATE.fistHoldStart) / 1000;
+          tunnelFactor = clamp01((holdDuration - 3) / 3); // Starts at 3s, full at 6s
+        } else {
+          STATE.fistHoldStart = null; // Reset if not max clench
+        }
+
+        if (tunnelFactor < 0.1) {
+          // === ENHANCED FLOWER OF LIFE ===
+          for (let k = 0; k <= 6; k++) {
+            let px = cx, py = cy;
+            const segmentAngle = ((k - 1) / 6) * Math.PI * 2 + t * 0.5;
+            if (k > 0) {
+              px += Math.cos(segmentAngle) * r;
+              py += Math.sin(segmentAngle) * r;
+            }
+            ctx.beginPath();
+            ctx.arc(px, py, r, 0, Math.PI * 2);
+            ctx.stroke();
+
+            if (k > 0) {
+              ctx.font = "7px 'Share Tech Mono'";
+              ctx.fillStyle = `hsl(${(hue * 360 + k * 50) % 360}, 100%, 70%)`;
+              const deg = ((segmentAngle * 180 / Math.PI) % 360).toFixed(0);
+              ctx.fillText(`θ:${deg}°`, px + 5, py - 5);
+              ctx.fillText(`d:${(r * 2).toFixed(0)}`, px + 5, py + 5);
+            }
+          }
+        } else {
+          // === PARTICLE TUNNEL EFFECT (From Top-Right) ===
+          const tunnelX = window.innerWidth - 80;
+          const tunnelY = 80;
+          const particleCount = 80;
+
+          ctx.lineWidth = 1.0;
+
+          // Draw lines from various screen points towards tunnel
+          for (let i = 0; i < particleCount; i++) {
+            const srcAngle = (i / particleCount) * Math.PI * 2;
+            const srcDist = 100 + Math.random() * 200;
+            const startX = tunnelX + Math.cos(srcAngle) * srcDist * (1 - tunnelFactor);
+            const startY = tunnelY + Math.sin(srcAngle) * srcDist * (1 - tunnelFactor);
+
+            const lineHue = (hue * 360 + i * 5) % 360;
+            ctx.strokeStyle = `hsla(${lineHue}, 100%, 50%, ${0.3 + tunnelFactor * 0.7})`;
+
+            ctx.beginPath();
+            ctx.moveTo(startX, startY);
+            ctx.lineTo(tunnelX, tunnelY);
+            ctx.stroke();
+          }
+
+          // Tunnel core glow
+          ctx.fillStyle = `hsla(0, 100%, 50%, ${tunnelFactor * 0.9})`;
+          ctx.beginPath();
+          ctx.arc(tunnelX, tunnelY, 15 + tunnelFactor * 20, 0, Math.PI * 2);
+          ctx.fill();
+
+          if (el.hudStatus) el.hudStatus.textContent = `⚠ COLLAPSE: ${(tunnelFactor * 100).toFixed(0)}% // EVACUATE`;
+        }
+      } else {
+        STATE.fistHoldStart = null;
+      }
+
+      // === 8. DETAILED PHALANX DATA ===
+      ctx.globalAlpha = 0.6;
+      ctx.font = "6px 'Share Tech Mono'";
+      ctx.fillStyle = "rgba(0, 243, 255, 0.5)";
+      for (let i = 1; i <= 20; i++) {
+        if (i % 4 === 0) continue; // Skip tips (already handled)
+        const p = points[i];
+        ctx.fillText(`${(p.x / 10).toFixed(0)}.${(p.y / 10).toFixed(0)}`, p.x + 4, p.y - 4);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    let hudFrame = 0;
+    function processResults(res) {
+      const q = QUALITY[STATE.tier];
+      hudFrame++;
+      if ((hudFrame % q.hudEvery) === 0) ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+
+      const currentHands = {};
+      if (res.multiHandLandmarks && res.multiHandLandmarks.length > 0) {
+        res.multiHandLandmarks.forEach((lm, i) => {
+          const pinch = Math.hypot(lm[8].x - lm[4].x, lm[8].y - lm[4].y) < CFG.pinchThreshold;
+          const sPos = getScreenPos(lm[8].x, lm[8].y);
+          const pos3D = get3DFromScreen(sPos.x, sPos.y);
+
+          // Calculate velocity
+          let vel = new THREE.Vector3();
+          const prev = STATE.hands[i];
+          if (prev) vel.subVectors(pos3D, prev.pos).multiplyScalar(0.5); // smoothing
+
+          const handData = { pos: pos3D, vel: vel, pinch, timestamp: Date.now(), lm };
+          currentHands[i] = handData;
+
+          // === GESTURE RECOGNITION ===
+          GestureRecognizer.addPoint(sPos.x, sPos.y);
+          const gesture = GestureRecognizer.recognize();
+          if (gesture && gesture !== STATE.lastGesture) {
+            STATE.lastGesture = gesture;
+            HapticEngine.onGesture();
+            handleGesture(gesture);
+          }
+
+          // === CALIBRATION ===
+          if (!STATE.calibrated) {
+            const palmSpread = Math.hypot(lm[5].x - lm[17].x, lm[5].y - lm[17].y);
+            Calibration.addSample(palmSpread);
+          }
+
+          // === RECORDING ===
+          RecordingSystem.addFrame(lm);
+
+          if (pinch) {
+            STATE.ghosts[i] = handData;
+            HapticEngine.onGrip();
+          }
+          if ((hudFrame % q.hudEvery) === 0) drawTechHUD(lm, i, pinch, handData);
+        });
+
+        // === TWO-HAND INTERACTION ===
+        const handKeys = Object.keys(currentHands);
+        if (handKeys.length >= 2) {
+          const h0 = currentHands[handKeys[0]];
+          const h1 = currentHands[handKeys[1]];
+          if (h0.pinch && h1.pinch) {
+            const twoHandResult = TwoHandInteraction.update(h0, h1);
+            if (twoHandResult) {
+              sphere.scale.multiplyScalar(twoHandResult.scale);
+              sphere.rotation.z += twoHandResult.rotate;
+              // Also affect AR objects
+              arObjects.forEach(obj => {
+                obj.scale.multiplyScalar(twoHandResult.scale);
+              });
+            }
+          }
+        } else {
+          TwoHandInteraction.lastDist = null;
+          TwoHandInteraction.lastAngle = null;
+        }
+      }
+      STATE.hands = currentHands;
+    }
+
+    // Handle recognized gestures
+    function handleGesture(gesture) {
+      let statusText = '';
+      switch (gesture) {
+        case 'circle':
+          statusText = 'GESTURE: CIRCLE // Color Shift';
+          mat.color.setHSL(Math.random(), 1, 0.5);
+          arObjects.forEach(obj => obj.material.color.setHSL(Math.random(), 1, 0.5));
+          break;
+        case 'swipe-left':
+          statusText = 'GESTURE: SWIPE LEFT';
+          sphere.rotation.y -= 0.5;
+          break;
+        case 'swipe-right':
+          statusText = 'GESTURE: SWIPE RIGHT';
+          sphere.rotation.y += 0.5;
+          break;
+        case 'swipe-up':
+          statusText = 'GESTURE: SWIPE UP // Scale+';
+          sphere.scale.multiplyScalar(1.15);
+          HapticEngine.pulse(40);
+          break;
+        case 'swipe-down':
+          statusText = 'GESTURE: SWIPE DOWN // Scale-';
+          sphere.scale.multiplyScalar(0.85);
+          HapticEngine.pulse(40);
+          break;
+      }
+      if (statusText && el.hudStatus) el.hudStatus.textContent = statusText;
+      GestureRecognizer.clear();
+    }
+
+    function resizeCanvas() {
+      const dpr = window.devicePixelRatio || 1;
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      el.hud.width = w * dpr;
+      el.hud.height = h * dpr;
+      el.hud.style.width = w + 'px';
+      el.hud.style.height = h + 'px';
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight); renderer.setPixelRatio(Math.min(dpr, QUALITY[STATE.tier].dprCap));
+      camera.position.z = (window.innerWidth < 800) ? 50 : 35;
+    }
+    window.addEventListener("resize", resizeCanvas, { passive: true });
+
+    /* ==========================
+       PHYSICS (NO PINCH SPARKS)
+    ========================== */
+    const vNow = new THREE.Vector3(), vOrig = new THREE.Vector3(), vTmp = new THREE.Vector3(), vDir = new THREE.Vector3(), cTmp = new THREE.Color(), matWorld = new THREE.Matrix4(), matInv = new THREE.Matrix4();
+    const anchorWorld = new THREE.Vector3(), targetWorld = new THREE.Vector3();
+    const PUSH_RANGE2 = CFG.pushRange * CFG.pushRange;
+
+    function initGrabForHand(hand) {
+      let bestIdx = 0, bestD2 = Infinity;
+      for (let i = 0; i < pos.count; i++) {
+        const idx = i * 3;
+        vTmp.set(pos.array[idx], pos.array[idx + 1], pos.array[idx + 2]).applyMatrix4(matWorld);
+        const d2 = vTmp.distanceToSquared(hand.pos);
+        if (d2 < bestD2) { bestD2 = d2; bestIdx = i; }
+      }
+      const aIdx = bestIdx * 3;
+      anchorWorld.set(pos.array[aIdx], pos.array[aIdx + 1], pos.array[aIdx + 2]).applyMatrix4(matWorld);
+      STATE.grabs[hand.id] = { vIndex: bestIdx, offset: hand.pos.clone().sub(anchorWorld) };
+    }
+
+    function updatePhysicsAndVisuals() {
+      const now = Date.now();
+
+      // AUTO RESET IDLE STATE (10s)
+      if (now - STATE.lastInteractionAt > 10000) {
+        sphere.scale.lerp(new THREE.Vector3(1, 1, 1), 0.02);
+        sphere.rotation.x *= 0.95;
+      }
+
+      // Update Sphere Velocity (Global Drift)
+      if (STATE.sphereVelocity) {
+        sphere.position.add(STATE.sphereVelocity);
+        STATE.sphereVelocity.multiplyScalar(0.95);
+        STATE.sphereVelocity.add(sphere.position.clone().multiplyScalar(-0.005)); // Return to center
+      }
+      // core.position.copy(sphere.position); // Removed
+
+      sphere.rotation.x += 0.001; sphere.rotation.y += 0.002;
+      // core.rotation.y -= 0.01; core.scale.setScalar(...); // Removed
+
+      // AR Objects Logic (Inertia + Orbit)
+      arObjects.forEach((obj, i) => {
+        if (!obj.userData.grabbed) {
+          if (obj.userData.velocity && obj.userData.velocity.lengthSq() > 0.0001) {
+            obj.position.add(obj.userData.velocity);
+            obj.userData.velocity.multiplyScalar(0.96); // Inertia friction
+            // Soft return orbit
+            if (obj.position.length() > 30) {
+              obj.userData.velocity.add(obj.position.clone().normalize().multiplyScalar(-0.02));
+            }
+          } else {
+            obj.userData.orbitAngle += obj.userData.orbitSpeed;
+            const r = 18 + Math.sin(now * 0.001 + i) * 3;
+            const tx = Math.cos(obj.userData.orbitAngle) * r;
+            const ty = Math.sin(obj.userData.orbitAngle) * r;
+            obj.position.x = obj.position.x * 0.95 + tx * 0.05;
+            obj.position.y = obj.position.y * 0.95 + ty * 0.05;
+            obj.position.z = obj.position.z * 0.95 + (Math.sin(now * 0.002 + i * 0.5) * 5) * 0.05;
+          }
+          obj.rotation.x += 0.02;
+          obj.rotation.y += 0.03;
+        }
+        // Update lastPos for next frame velocity calc
+        if (obj.userData.lastPos) obj.userData.lastPos.copy(obj.position);
+
+        // RGB Cycle
+        const hue = (now * 0.0002 + i * 0.15) % 1;
+        obj.material.color.setHSL(hue, 1.0, 0.6);
+
+        // Update Links
+        if (obj.userData.linkLine) {
+          const pos = obj.userData.linkLine.geometry.attributes.position.array;
+          pos[0] = obj.position.x; pos[1] = obj.position.y; pos[2] = obj.position.z;
+          pos[3] = sphere.position.x; pos[4] = sphere.position.y; pos[5] = sphere.position.z;
+          obj.userData.linkLine.geometry.attributes.position.needsUpdate = true;
+          obj.userData.linkLine.material.color.setHSL(hue, 1.0, 0.5);
+        }
+        if (obj.userData.neuronLine && neurons[obj.userData.neuronIdx]) {
+          const nPos = neurons[obj.userData.neuronIdx].position;
+          const pos = obj.userData.neuronLine.geometry.attributes.position.array;
+          pos[0] = obj.position.x; pos[1] = obj.position.y; pos[2] = obj.position.z;
+          pos[3] = nPos.x; pos[4] = nPos.y; pos[5] = nPos.z;
+          obj.userData.neuronLine.geometry.attributes.position.needsUpdate = true;
+          obj.userData.neuronLine.material.color.setHSL((hue + 0.5) % 1, 1.0, 0.5);
+
+          // Interaction Influence
+          if (obj.userData.grabbed || obj.position.distanceTo(sphere.position) < 20) {
+            neurons[obj.userData.neuronIdx].scale.multiplyScalar(1.05);
+            STATE.sphereVelocity.add(new THREE.Vector3((Math.random() - 0.5) * 0.01, (Math.random() - 0.5) * 0.01, 0));
+          }
+        }
+      });
+
+      let isGrip = false, isTouch = false, isGhost = false, maxStress = 0;
+
+
+      sphere.updateMatrixWorld(); matWorld.copy(sphere.matrixWorld); matInv.copy(matWorld).invert();
+
+      const forces = [];
+      for (const k in STATE.hands) { forces.push({ id: k, ...STATE.hands[k] }); if (STATE.ghosts[k] && !STATE.hands[k].pinch) delete STATE.ghosts[k]; }
+      for (const k in STATE.ghosts) {
+        if (!STATE.hands[k]) {
+          if (now - STATE.ghosts[k].timestamp < CFG.ghostTimeout) { forces.push({ id: k, ...STATE.ghosts[k] }); isGhost = true; }
+          else delete STATE.ghosts[k];
+        }
+      }
+
+      for (const f of forces) {
+        if (f.pinch) { if (!STATE.grabs[f.id]) initGrabForHand(f); }
+        else { if (STATE.grabs[f.id]) delete STATE.grabs[f.id]; }
+      }
+
+      const grabList = [];
+
+      // === SPHERE GRAB ===
+      for (const f of forces) {
+        if (!f.pinch) continue;
+        const g = STATE.grabs[f.id];
+        if (!g) continue;
+        const ai = g.vIndex * 3;
+        anchorWorld.set(pos.array[ai], pos.array[ai + 1], pos.array[ai + 2]).applyMatrix4(matWorld);
+        targetWorld.copy(f.pos).sub(g.offset);
+        grabList.push({ anchor: anchorWorld.clone(), target: targetWorld.clone(), vIndex: g.vIndex });
+        isGrip = true;
+      }
+
+      // === AR OBJECT INTEACTION (Push & Grip) ===
+      arObjects.forEach(obj => {
+        obj.userData.grabbed = false;
+        for (const f of forces) {
+          const dist = obj.position.distanceTo(f.pos);
+          if (f.pinch) {
+            // GRIP: If near cube, grab it
+            if (dist < 5) {
+              obj.userData.grabbed = true;
+              obj.position.lerp(f.pos, 0.8); // Fast response (was 0.2)
+              obj.rubble = Math.random();
+
+              // Calc velocity for inertia when released
+              if (obj.userData.lastPos) {
+                const v = obj.position.clone().sub(obj.userData.lastPos);
+                obj.userData.velocity.copy(v);
+              }
+            }
+          } else {
+            // PUSH: If hand nearby, push away
+            if (dist < 4) {
+              const pushDir = obj.position.clone().sub(f.pos).normalize();
+              obj.position.add(pushDir.multiplyScalar(0.5));
+              // Add impulse
+              if (obj.userData.velocity) obj.userData.velocity.add(pushDir.multiplyScalar(0.1));
+              obj.userData.orbitSpeed += 0.005;
+              maxStress = Math.max(maxStress, 1.0);
+            }
+          }
+        }
+        if (obj.userData.orbitSpeed > 0.02) obj.userData.orbitSpeed *= 0.98;
+      });
+
+      for (let i = 0; i < pos.count; i++) {
+        const idx = i * 3;
+        vNow.set(pos.array[idx], pos.array[idx + 1], pos.array[idx + 2]);
+        vOrig.set(origPos[idx], origPos[idx + 1], origPos[idx + 2]);
+        vNow.lerp(vOrig, CFG.spring);
+        vTmp.copy(vNow).applyMatrix4(matWorld);
+
+        for (const f of forces) {
+          if (f.pinch) continue;
+          const d2 = vTmp.distanceToSquared(f.pos);
+          if (d2 < PUSH_RANGE2) {
+            const d = Math.sqrt(d2);
+            vDir.subVectors(vTmp, f.pos).normalize().multiplyScalar((1 - d / CFG.pushRange) * 2.0);
+            vTmp.add(vDir);
+            isTouch = true;
+            // Calculate stress based on deformation
+            const deformation = vTmp.distanceTo(f.pos);
+            maxStress = Math.max(maxStress, clamp01(1.0 - d / CFG.pushRange));
+
+            // GLOBAL PUSH: Non-linear Impact (Stabilized)
+            const pushVec = sphere.position.clone().sub(f.pos).normalize();
+            const pen = clamp01(1.0 - d / CFG.pushRange);
+            const force = Math.pow(pen, 3) * 0.05;
+            if (force > 0.002) STATE.sphereVelocity.add(pushVec.multiplyScalar(force));
+          }
+        }
+
+        vTmp.applyMatrix4(matInv);
+        pos.array[idx] = vTmp.x; pos.array[idx + 1] = vTmp.y; pos.array[idx + 2] = vTmp.z;
+        const stress = vNow.distanceTo(vOrig);
+
+        // Soft Gradient: Cyan -> Green -> Yellow -> Red
+        const hue = clamp01(0.55 - stress * 0.6);
+        cTmp.setHSL(hue, 1.0, 0.5);
+        colors[idx] = cTmp.r; colors[idx + 1] = cTmp.g; colors[idx + 2] = cTmp.b;
+
+        maxStress = Math.max(maxStress, stress);
+      }
+
+      for (const g of grabList) {
+        const idx = g.vIndex * 3;
+        vNow.set(pos.array[idx], pos.array[idx + 1], pos.array[idx + 2]);
+        vTmp.copy(vNow).applyMatrix4(matWorld);
+        const move = g.target.clone().sub(vTmp).multiplyScalar(CFG.gripStrength);
+        vTmp.add(move);
+        vTmp.applyMatrix4(matInv);
+
+        // SPHERE NEEDLES: High frequency vibration on rest of geometry
+        if (maxStress > 0.1) {
+          const needleScale = (maxStress - 0.1) * 0.8;
+          if (Math.random() < 0.25) {
+            const n = (Math.random() - 0.5) * needleScale;
+            vTmp.x += n; vTmp.y += n; vTmp.z += n;
+          }
+        }
+
+        pos.array[idx] = vTmp.x; pos.array[idx + 1] = vTmp.y; pos.array[idx + 2] = vTmp.z;
+        colors[idx] = 1; colors[idx + 1] = 0; colors[idx + 2] = 0.5;
+        maxStress = Math.max(maxStress, 1.0);
+      }
+
+      pos.needsUpdate = true;
+      geo.attributes.color.needsUpdate = true;
+      STATE.stressEMA = STATE.stressEMA * 0.9 + maxStress * 0.1;
+
+      // Update Neural Network
+      if (typeof updateNeuralNetwork === "function") updateNeuralNetwork(STATE.stressEMA);
+
+      const interacting = isGrip || isTouch || isGhost;
+      if (interacting) STATE.lastInteractionAt = now;
+      updateMonologue(interacting, isGrip, isTouch, isGhost, STATE.stressEMA);
+      if (isGrip) AudioEngine.triggerSwell();
+      updateSparks();
+    }
+
+    /* ==========================
+       MONOLOGUE & APP
+    ========================== */
+    function postLine(text) {
+      el.chat.textContent = "";
+      const div = document.createElement("div"); div.className = "log-msg"; div.textContent = `> ${text}`;
+      el.chat.appendChild(div);
+    }
+    function say(type, cooldownMs) {
+      const now = Date.now();
+      if (now - STATE.lastChatAt < cooldownMs) return false;
+      const line = LinePicker.next(type); if (!line) return false;
+      postLine(line); STATE.lastChatAt = now; return true;
+    }
+    function updateMonologue(interacting, isGrip, isTouch, isGhost, stressNorm) {
+      const now = Date.now();
+      if (!interacting) { if (!STATE.idleSince) STATE.idleSince = now; } else STATE.idleSince = 0;
+      const highStress = (STATE.stressEMA > 0.85) && (isGrip || isGhost);
+      const lowStress = (STATE.stressEMA < 0.12);
+      if (isGhost) { say("ghost", 3200); return; }
+      if (highStress) { say("overload", 2600); return; }
+      if (isGrip) { say("magnet", 2800); return; }
+      if (isTouch) { say("touch", 3000); return; }
+      const recentlyInteracted = (now - STATE.lastInteractionAt) < 2500;
+      if (!interacting && recentlyInteracted && lowStress) { if (say("calm", 4200)) return; }
+      const idleLong = STATE.idleSince && (now - STATE.idleSince > 9000);
+      if (idleLong && lowStress && Math.random() < 0.22) { if (say("near_silence", 5200)) return; }
+      if (!interacting && Math.random() < 0.55) say("idle", 6000);
+    }
+
+    function toggleAR() {
+      STATE.ar = !STATE.ar;
+      document.body.classList.toggle("ar-active", STATE.ar);
+      if (el.btnAr) el.btnAr.classList.toggle("active", STATE.ar);
+      if (STATE.streamReady) say("ar", 2200);
+    }
+
+    let frames = 0, lastFpsTick = 0, rafAnim = 0, animFrame = 0;
+    function updateQualityByFps(fpsNow, tNow) {
+      STATE.fpsAvg = (STATE.fpsAvg * 0.85) + (fpsNow * 0.15);
+      const avg = STATE.fpsAvg;
+      if (avg < 52) {
+        if (!STATE.lowFpsSince) STATE.lowFpsSince = tNow;
+        if (tNow - STATE.lowFpsSince > 2500 && STATE.tier < 2) {
+          applyTier(STATE.tier + 1); initSparksForTier(STATE.tier); resizeCanvas();
+          STATE.lowFpsSince = 0; STATE.highFpsSince = 0;
+        }
+      } else STATE.lowFpsSince = 0;
+      if (avg > 58) {
+        if (!STATE.highFpsSince) STATE.highFpsSince = tNow;
+        if (tNow - STATE.highFpsSince > 5000 && STATE.tier > 0) {
+          applyTier(STATE.tier - 1); initSparksForTier(STATE.tier); resizeCanvas();
+          STATE.highFpsSince = 0; STATE.lowFpsSince = 0;
+        }
+      } else STATE.highFpsSince = 0;
+    }
+
+    function animate() {
+      rafAnim = requestAnimationFrame(animate); animFrame++;
+      const q = QUALITY[STATE.tier];
+      if ((animFrame % q.physicsEvery) === 0) updatePhysicsAndVisuals();
+      else updateSparks();
+      renderer.render(scene, camera);
+      frames++;
+      const now = performance.now();
+      if (now - lastFpsTick > 1000) { el.fps.textContent = frames; updateQualityByFps(frames, now); frames = 0; lastFpsTick = now; }
+    }
+
+    async function initSystem() {
+      try {
+
+        try { if (document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen(); } catch (_) { }
+        el.start.style.opacity = 0; setTimeout(() => { el.start.style.display = "none"; }, 800);
+        applyTier(0);
+        if (typeof initSparksForTier === 'function') initSparksForTier(STATE.tier);
+        resizeCanvas();
+
+        await AudioEngine.init().catch(e => console.log("Audio init failed", e));
+        VoiceCommand.init();
+        VoiceCommand.start();
+        say("boot", 0);
+
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { alert("Webcam API error: Not Supported"); return; }
+
+        try {
+          // Wide Angle / High Res Constraints
+          const constraints = {
+            video: {
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+              facingMode: "user",
+              aspectRatio: { ideal: 1.7777 }
+            }
+          };
+
+          // Debug cameras
+          try {
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const cams = devices.filter(d => d.kind === 'videoinput');
+            postLine(`> Cam scan: ${cams.length} found`);
+            cams.forEach(c => console.log(c.label));
+          } catch (_) { }
+
+          const stream = await navigator.mediaDevices.getUserMedia(constraints);
+          el.vRaw.srcObject = stream; el.vAR.srcObject = stream;
+          await new Promise((r) => { el.vRaw.onloadedmetadata = r; });
+          try { await el.vRaw.play(); await el.vAR.play(); } catch (_) { }
+          STATE.streamReady = true;
+        } catch (e) { alert("Camera Permission/Error: " + e.message); return; }
+      } catch (err) {
+        alert("Critical Init Error: " + err.message);
+      }
+      const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
+      // Optimized for edge tracking
+      hands.setOptions({ maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.25, minTrackingConfidence: 0.3 });
+      hands.onResults(processResults);
+      let processing = false, mpFrame = 0;
+      async function loop() {
+        requestAnimationFrame(loop);
+        if (!STATE.streamReady || processing || el.vRaw.readyState < 2) return;
+        mpFrame++;
+        if ((mpFrame % QUALITY[STATE.tier].mpEvery) !== 0) return;
+        processing = true;
+        try { await hands.send({ image: el.vRaw }); } catch (_) { } finally { processing = false; }
+      }
+      loop();
+
+      // Listeners moved to global scope
+
+
+      window.addEventListener("beforeunload", () => {
+        try { hands.close(); } catch (_) { }
+        try { stream.getTracks().forEach(t => t.stop()); } catch (_) { }
+        AudioEngine.destroy();
+        if (rafAnim) cancelAnimationFrame(rafAnim);
+      }, { once: true });
+      animate();
+    }
+
+    // MENU HANDLERS (Global Scope)
+    let menuOpen = false, infoOpen = false;
+    let menuTimer = null;
+
+    function resetMenuTimer() {
+      if (menuTimer) clearTimeout(menuTimer);
+      if (menuOpen) {
+        menuTimer = setTimeout(() => {
+          if (menuOpen) toggleMenu(false);
+        }, 10000); // Auto-collapse after 10s
+      }
+    }
+
+    function toggleMenu(state) {
+      menuOpen = state !== undefined ? state : !menuOpen;
+      el.menuFab.classList.toggle("open", menuOpen);
+      el.menuSubmenu.classList.toggle("open", menuOpen);
+      if (!menuOpen) {
+        el.infoPanel.classList.remove("open");
+        infoOpen = false;
+        if (el.btnInfo) el.btnInfo.classList.remove("active");
+      } else {
+        resetMenuTimer();
+      }
+    }
+
+    if (el.menuFab) {
+      el.menuFab.addEventListener("click", () => toggleMenu());
+    }
+
+    if (el.btnAr) {
+      el.btnAr.addEventListener("click", () => {
+        toggleAR();
+        el.btnAr.classList.toggle("active", STATE.ar);
+      });
+    }
+
+    if (el.btnInfo) {
+      el.btnInfo.addEventListener("click", () => {
+        infoOpen = !infoOpen;
+        el.infoPanel.classList.toggle("open", infoOpen);
+        el.btnInfo.classList.toggle("active", infoOpen);
+      });
+    }
+
+    if (el.btnStart) {
+      console.log("Attaching start listener");
+      el.btnStart.addEventListener("click", () => {
+        console.log("Start Clicked");
+        // Force fullscreen if possible
+        try { if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen(); } catch (e) { }
+        initSystem();
+      });
+    } else {
+      alert("CRITICAL ERROR: Start Button Not Found in DOM");
+    }
+
+    // Start visuals
+    applyTier(0);
+    if (typeof initSparksForTier === 'function') initSparksForTier(STATE.tier);
+    resizeCanvas();
+  </script>
+</body>
+
+</html>
