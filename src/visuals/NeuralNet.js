@@ -195,7 +195,8 @@ export class NeuralNet {
 
                 // Minimum radius (don't go to center)
                 const minRadius = CFG.radius * 0.05;
-                if (distFromCenter < minRadius) {
+                const dLocal = neuron.userData.basePos.length();
+                if (dLocal < minRadius) {
                     neuron.userData.basePos.normalize().multiplyScalar(minRadius);
                 }
             }
