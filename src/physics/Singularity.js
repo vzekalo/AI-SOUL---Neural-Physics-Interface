@@ -140,4 +140,29 @@ export class Singularity {
             }
         }
     }
+
+    reset(object) {
+        if (!object) return;
+
+        // Reset physics state
+        if (object.userData.vel) object.userData.vel.set(0, 0, 0);
+        object.userData.absorbed = 0;
+
+        // Restore visibility
+        object.visible = true;
+
+        // Restore material
+        if (object.material) {
+            object.material.opacity = 0.85; // Default opacity from main.js
+            object.material.transparent = true;
+        }
+
+        // Restore transform
+        object.scale.setScalar(1);
+        object.position.set(0, 0, 0);
+        object.rotation.set(0, 0, 0);
+        object.updateMatrix();
+
+        console.log("⚫ Singularity reset object state");
+    }
 }

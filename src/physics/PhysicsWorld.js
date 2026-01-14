@@ -4,6 +4,7 @@ import { SoftBody } from './SoftBody.js';
 import { Singularity } from './Singularity.js';
 import { AccretionDisk } from '../visuals/AccretionDisk.js';
 import { Jets } from '../visuals/Jets.js';
+import { EventHorizon } from '../visuals/EventHorizon.js';
 
 export class PhysicsWorld {
     constructor(scene, sphere, neuralNet) {
@@ -23,6 +24,9 @@ export class PhysicsWorld {
             this.jets = new Jets(scene, BLACK_HOLE.jets);
             if (this.jets && this.jets.points) this.jets.points.visible = false;
         }
+
+        // Event Horizon Glow (New visual effect)
+        this.eventHorizon = new EventHorizon(scene, BLACK_HOLE);
 
         this.arObjects = [];
     }
@@ -44,35 +48,33 @@ export class PhysicsWorld {
             const targetNeuronIdx = i % this.neuralNet.neurons.length;
 
             cube.userData = {
-                orbitAngle: angle,
-                orbitSpeed: 0.005 + Math.random() * 0.005,
-                grabbed: false,
-                velocity: new THREE.Vector3(),
-                lastPos: new THREE.Vector3().copy(cube.position),
-                targetNeuronIdx: targetNeuronIdx
+                type: 'ar-cube',
+                initPos: cube.position.clone(),
+                angle: angle,
+                targetNeuronIdx: targetNeuronIdx,
+                grabbed: false
             };
             this.scene.add(cube);
             this.arObjects.push(cube);
-
-            // Link lines (Neural Links)
-            const lineMat = new THREE.LineBasicMaterial({
-                color: 0x00f3ff,
-                transparent: true,
-                opacity: 0.15,
-                blending: THREE.AdditiveBlending
-            });
-            const line = new THREE.Line(new THREE.BufferGeometry(), lineMat);
-            this.scene.add(line);
-            cube.userData.linkLine = line;
         }
     }
 
     update(hands, camera, deltaTime) {
+        // Safe deltaTime with bounds
+        const dt = Math.min(0.05, Math.max(0.001, deltaTime || 0.016));
         const t = Date.now() * 0.001;
         this.singularity.update(camera);
 
-        // Update Sphere SoftBody
-        this.softBody.update(hands, this.singularity, deltaTime);
+        // Physics substeps for stability at high pull values
+        const pull = STATE.blackHolePull;
+        const substeps = pull > 0.7 ? 2 : 1;
+        const subDt = dt / substeps;
+
+        for (let s = 0; s < substeps; s++) {
+            // Update Sphere SoftBody with Neuron Repulsion
+            // Pass neuralNet.neurons so SoftBody can calculate internal pressure from neurons
+            this.softBody.update(hands, this.singularity, subDt, this.neuralNet.neurons);
+        }
 
         // Physics Loop specific to Singularity Mode
         if (STATE.mode === 'SINGULARITY') {
@@ -82,21 +84,30 @@ export class PhysicsWorld {
 
             if (this.disk) {
                 this.disk.setCenter(bhPos);
-                this.disk.update(deltaTime, t, pull);
+                this.disk.update(dt, t, pull);
                 if (!this.disk.points.visible) this.disk.points.visible = true;
             }
+
             if (this.jets) {
                 this.jets.setCenter(bhPos);
-                this.jets.update(deltaTime, t);
+                this.jets.update(dt, t, pull, STATE.stressEMA);
                 if (!this.jets.points.visible) this.jets.points.visible = true;
             }
 
+            // Event Horizon Glow
+            if (this.eventHorizon) {
+                this.eventHorizon.setCenter(bhPos);
+                this.eventHorizon.update(dt, t, pull);
+            }
+
             // Global pull towards black hole
-            this.singularity.applyPull(this.sphere, deltaTime);
+            this.singularity.applyPull(this.sphere, dt);
         } else {
             // Hide visuals when not active
             if (this.disk && this.disk.points.visible) this.disk.points.visible = false;
             if (this.jets && this.jets.points.visible) this.jets.points.visible = false;
+            // EventHorizon handles its own visibility based on pull
+            if (this.eventHorizon) this.eventHorizon.update(dt, t, 0);
         }
 
         // Update AR Objects
@@ -105,51 +116,27 @@ export class PhysicsWorld {
                 // Logic for grabbed items is handled in main loop (mapping to hand)
             } else {
                 // Orbit
-                obj.userData.orbitAngle += obj.userData.orbitSpeed;
-                const r = 18 + Math.sin(t + obj.userData.orbitAngle) * 2;
-                const targetPos = new THREE.Vector3(
-                    Math.cos(obj.userData.orbitAngle) * r,
-                    Math.sin(obj.userData.orbitAngle) * r,
-                    Math.sin(t * 0.5) * 5
-                );
-                obj.position.lerp(targetPos, 0.05);
-
-                // Singularity Pull
-                this.singularity.applyPull(obj, deltaTime);
+                obj.userData.angle += dt * 0.2;
+                const r = 18 + Math.sin(t + obj.userData.angle) * 2;
+                obj.position.x = Math.cos(obj.userData.angle) * r;
+                obj.position.y = Math.sin(obj.userData.angle) * r;
+                obj.position.z = Math.sin(t * 0.5 + obj.userData.angle) * 5;
             }
+            obj.rotation.x += dt;
+            obj.rotation.y += dt;
 
-            // Update visual links to Neurons
-            if (obj.userData.linkLine && this.neuralNet.neurons[obj.userData.targetNeuronIdx]) {
-                const targetPos = this.neuralNet.neurons[obj.userData.targetNeuronIdx].position;
-                obj.userData.linkLine.geometry.setFromPoints([obj.position, targetPos]);
-                obj.userData.linkLine.material.opacity = 0.05 + Math.sin(t * 2) * 0.05 + (STATE.stressEMA * 0.2);
-            }
-
-            // Momentum coupling: Grabbed cubes pull the sphere
-            if (obj.userData.grabbed) {
-                const deltaPos = obj.position.clone().sub(obj.userData.lastPos);
-                STATE.sphereVelocity.addScaledVector(deltaPos, 0.35); // Dragging influence
-            }
-            obj.userData.lastPos.copy(obj.position);
+            // Connect line to neuron
+            // (Optional visual logic could go here)
         });
+    }
 
-        // Global Sphere Physics (Slow drift & Hand Push)
-        if (STATE.mode === 'NORMAL') {
-            // Push sphere by hands
-            Object.values(hands).forEach(hand => {
-                const dist = hand.pos.distanceTo(this.sphere.position);
-                if (dist < 20) {
-                    const force = (1.0 - dist / 20) * 0.15;
-                    const dir = this.sphere.position.clone().sub(hand.pos).normalize();
-                    STATE.sphereVelocity.addScaledVector(dir, force);
-                }
-            });
+    reset() {
+        if (this.softBody && this.softBody.reset) this.softBody.reset();
+        if (this.singularity && this.singularity.reset) this.singularity.reset(this.sphere);
 
-            this.sphere.position.addScaledVector(STATE.sphereVelocity, 0.1);
-            STATE.sphereVelocity.multiplyScalar(0.92); // Friction for whole sphere
-
-            // Stay near center
-            this.sphere.position.multiplyScalar(0.995);
-        }
+        // Reset Visuals
+        if (this.disk && this.disk.points) this.disk.points.visible = false;
+        if (this.jets && this.jets.points) this.jets.points.visible = false;
+        console.log("🌌 Physics World Reset");
     }
 }

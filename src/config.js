@@ -12,24 +12,28 @@ export const CFG = {
 };
 
 export const BLACK_HOLE = {
-    // dynamics (Cinematic Physics)
-    mass: 1050,        // Less acceleration at distance
-    spin: 0.75,        // Reduced spin for stability
-    drag: 0.22,        // Less drag -> longer orbits
-    maxAccel: 120,     // Clamp for stability
-    eps: 3.6,          // Softer center
-    influenceRadius: 95,
+    // dynamics (Realistic Spaghettification Physics)
+    mass: 850,           // Balanced acceleration for controlled pinch
+    spin: 1.5,           // Increased for visible spiral effect
+    drag: 0.18,          // Lower drag = longer spiral orbits
+    maxAccel: 100,       // Clamped for stability
+    eps: 2.5,            // Softer center prevents singularity
+    influenceRadius: 85, // Range of gravitational influence
+
+    // Suction speed control (NEW)
+    suctionSpeed: 0.15,  // 0.05 = very slow, 0.5 = fast (default: 0.15)
 
     // tidal (spaghettification)
-    tidalStrength: 1.25,
-    tidalRadius: 22,
+    tidalStrength: 2.2,  // Stronger perpendicular compression
+    tidalRadius: 28,     // Larger zone for visible stretching
 
     // absorption / tunnel
-    horizonRadius: 6.5,
-    absorbRadius: 15,
-    absorbRate: 0.55,  // Slower fade
-    shrinkRate: 0.06,  // Slower shrink
-    tunnelDepth: 16,   // Reduced Z-pull per frame
+    horizonRadius: 8,    // Slightly larger event horizon
+    absorbRadius: 4,     // Smaller core = more dramatic suction
+    absorbRate: 0.45,    // Moderate fade for smooth transition
+    shrinkRate: 0.04,    // Gentle shrink
+    shrinkRate: 0.04,    // Gentle shrink
+    tunnelDepth: 8,      // Balanced depth for funnel
 
     // VISUALS
     accretion: {

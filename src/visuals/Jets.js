@@ -102,7 +102,7 @@ export class Jets {
         }
     }
 
-    update(dt, time) {
+    update(dt, time, pull = 1.0, stressEMA = 0) {
         const positions = this.geometry.attributes.position.array;
         const colors = this.geometry.attributes.color.array;
         const cfg = this.cfg;
@@ -110,8 +110,11 @@ export class Jets {
         const cx = this.center.x, cy = this.center.y, cz = this.center.z;
         const length = cfg.length;
 
-        // Pulse effect
-        const pulse = 0.6 + 0.4 * Math.sin(time * (cfg.pulse || 1.0));
+        // Pulse effect synchronized with absorption intensity
+        const basePulse = 0.6 + 0.4 * Math.sin(time * (cfg.pulse || 1.0));
+        const stressPulse = 1.0 + stressEMA * 0.3; // Respond to sphere stress
+        const pullBoost = 0.8 + pull * 0.4; // Boost with pull strength
+        const pulse = basePulse * stressPulse * pullBoost;
 
         for (let i = 0; i < count; i++) {
             let dist = this.state.dist[i];
@@ -134,8 +137,17 @@ export class Jets {
 
             positions[i * 3] = cx + ox * spread;
             positions[i * 3 + 1] = cy + oy * spread;
+            positions[i * 3] = cx + ox * spread;
+            positions[i * 3 + 1] = cy + oy * spread;
+
             // Z-axis jets
-            positions[i * 3 + 2] = cz + (dist * dir);
+            // FIX: If Black Hole is active, force suction/ejection into the screen (negative Z)
+            // Users dislike particles flying "forward" (towards camera)
+            const effectiveDir = (pull > 0.1) ? -1.0 : dir;
+
+            // If suction is strong, maybe pull them IN towards center? 
+            // For now, just ensure they go AWAY from camera (-Z)
+            positions[i * 3 + 2] = cz + (dist * effectiveDir);
 
             // Fade out at end
             const life = 1.0 - (dist / length);

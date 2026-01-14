@@ -35,8 +35,12 @@ export class SoftBody {
         this.vBH = new THREE.Vector3();
         this.vHandWorld = new THREE.Vector3();
         this.dir = new THREE.Vector3();
+        this.dir = new THREE.Vector3();
         this.tangent = new THREE.Vector3();
         this.matInv = new THREE.Matrix4();
+
+        // Dynamic Center of Mass for neuron tracking
+        this.centerOfMass = new THREE.Vector3();
 
         // Cinematic Physics Vectors
         this.axis = new THREE.Vector3(0, 0, 1);
@@ -67,10 +71,9 @@ export class SoftBody {
         for (let i = 0; i < this.count; i++) {
             const idx = i * 3;
 
-            // -- SAFETY CHECK --
-            if (isNaN(this.currentPos[idx]) || isNaN(this.currentPos[idx + 1]) || isNaN(this.currentPos[idx + 2])) {
-                hasNaN = true;
-                break;
+            // -- SAFETY CHECK -- Skip NaN vertices
+            if (!isFinite(this.currentPos[idx]) || !isFinite(this.currentPos[idx + 1]) || !isFinite(this.currentPos[idx + 2])) {
+                continue; // Skip invalid vertices instead of breaking
             }
 
             this.vTmp.set(this.currentPos[idx], this.currentPos[idx + 1], this.currentPos[idx + 2]);
@@ -86,7 +89,42 @@ export class SoftBody {
         return { index: closestIdx, distance: minDist };
     }
 
-    update(hands, singularity, deltaTime) {
+    // Reset soft body to initial state
+    reset() {
+        const count = this.count;
+        for (let i = 0; i < count; i++) {
+            const idx = i * 3;
+            // Reset positions to original
+            this.currentPos[idx] = this.origPos[idx];
+            this.currentPos[idx + 1] = this.origPos[idx + 1];
+            this.currentPos[idx + 2] = this.origPos[idx + 2];
+
+            // Zero velocities
+            this.velocity[idx] = 0;
+            this.velocity[idx + 1] = 0;
+            this.velocity[idx + 2] = 0;
+
+            // Reset absorption
+            this.absorb[i] = 0;
+        }
+
+        // Update geometry
+        this.geometry.attributes.position.needsUpdate = true;
+        this.geometry.attributes.color.needsUpdate = true;
+
+        // Reset CoM
+        this.centerOfMass.set(0, 0, 0);
+        if (this.mesh.userData.centerOfMass) this.mesh.userData.centerOfMass.set(0, 0, 0);
+        this.mesh.userData.currentRadius = CFG.radius;
+
+        // CRITICAL: Recompute bounds to ensure frustum culling doesn't hide the reset sphere
+        this.geometry.computeBoundingSphere();
+        this.geometry.computeBoundingBox();
+
+        console.log("🔄 SoftBody reset & bounds recomputed");
+    }
+
+    update(hands, singularity, deltaTime, neurons = null) {
         let dt = Math.min(0.033, Math.max(0.008, deltaTime || 0.016));
         const t = performance.now() * 0.001;
 
@@ -116,8 +154,10 @@ export class SoftBody {
         const sphereScale = this.mesh.scale.x || 1;
         const sphereRadius = CFG.radius * sphereScale;
 
-        // Breathing
-        const breathing = 1.0 + Math.sin(t * 1.2) * 0.025;
+        // Breathing - DISABLED during black hole to prevent expansion
+        // Use STATE directly since local bhEnabled/pull are defined later
+        const breathingActive = STATE.mode !== 'SINGULARITY' || STATE.blackHolePull < 0.3;
+        const breathing = breathingActive ? (1.0 + Math.sin(t * 1.2) * 0.025) : 1.0;
 
         // ---- Process hands and grab points ----
         const hl = this._handsLocal;
@@ -217,6 +257,11 @@ export class SoftBody {
         const horizonPull = BLACK_HOLE.horizonPull ?? 0.42;
 
         let maxStress = 0;
+        let sumRadius = 0;
+        let sumX = 0, sumY = 0, sumZ = 0;
+        const cx = this.centerOfMass.x; // Use previous frame CoM for radius calc
+        const cy = this.centerOfMass.y;
+        const cz = this.centerOfMass.z;
 
         for (let i = 0; i < this.count; i++) {
             const idx = i * 3;
@@ -225,14 +270,67 @@ export class SoftBody {
             const y = this.currentPos[idx + 1];
             const z = this.currentPos[idx + 2];
 
-            const ox = this.origPos[idx] * breathing;
-            const oy = this.origPos[idx + 1] * breathing;
-            const oz = this.origPos[idx + 2] * breathing;
+            // Accumulate Center of Mass
+            sumX += x; sumY += y; sumZ += z;
 
-            // Spring force
-            this.velocity[idx] += (ox - x) * CFG.spring;
-            this.velocity[idx + 1] += (oy - y) * CFG.spring;
-            this.velocity[idx + 2] += (oz - z) * CFG.spring;
+            // Accumulate radius relative to Center of Mass (not Origin!)
+            const dx = x - cx;
+            const dy = y - cy;
+            const dz = z - cz;
+            sumRadius += Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+            // ... rest of loop ...
+
+
+            // Calculate per-vertex shrink based on absorption
+            const vertexAbsorb = this.absorb[i] || 0;
+            // Fix: Allow full shrink to 0.0
+            const shrinkFactor = Math.max(0, 1.0 - vertexAbsorb);
+
+            const ox = this.origPos[idx] * breathing * shrinkFactor;
+            const oy = this.origPos[idx + 1] * breathing * shrinkFactor;
+            const oz = this.origPos[idx + 2] * breathing * shrinkFactor;
+
+            // Spring force - REDUCED during black hole to allow suction
+            // Also reduce based on absorption (absorbed vertices lose spring)
+            const absorbReduction = 1.0 - vertexAbsorb * 0.8;
+            const springFactor = bhEnabled ? Math.max(0.05, (1 - pull * 0.9) * absorbReduction) : 1.0;
+            this.velocity[idx] += (ox - x) * CFG.spring * springFactor;
+            this.velocity[idx + 1] += (oy - y) * CFG.spring * springFactor;
+            this.velocity[idx + 2] += (oz - z) * CFG.spring * springFactor;
+
+            // ---- NEURON REPULSION (Internal Pressure) ----
+            if (neurons) {
+                // Optimized CPU repulsion
+                // User Request: Interact only on "Direct Touch"
+                // Reduced from 4.0 to 1.5 (Sq: 2.25)
+                const neuronPushRadiusSq = 2.25;
+                const touchRadius = 1.5;
+
+                for (let k = 0; k < neurons.length; k++) {
+                    const nUserData = neurons[k].userData;
+                    const nx = nUserData.basePos.x;
+                    const ny = nUserData.basePos.y;
+                    const nz = nUserData.basePos.z;
+
+                    const dx = x - nx;
+                    const dy = y - ny;
+                    const dz = z - nz;
+                    const d2 = dx * dx + dy * dy + dz * dz;
+
+                    if (d2 < neuronPushRadiusSq) {
+                        const dist = Math.sqrt(d2) + 0.001;
+                        // Push stronger if closer. 
+                        const pushFactor = (1.0 - dist / touchRadius);
+                        const activity = nUserData.activity || 0;
+                        const strength = pushFactor * (0.15 + activity * 0.25);
+
+                        this.velocity[idx] += (dx / dist) * strength;
+                        this.velocity[idx + 1] += (dy / dist) * strength;
+                        this.velocity[idx + 2] += (dz / dist) * strength;
+                    }
+                }
+            }
 
             // ---- Hand interactions ----
             for (let h = 0; h < hl.length; h++) {
@@ -323,153 +421,200 @@ export class SoftBody {
                 }
             }
 
-            // ---- CINEMATIC BLACK HOLE PHYSICS ----
+            // ---- REALISTIC SPAGHETTIFICATION PHYSICS ----
             let bhFade = 0;
 
             if (bhEnabled) {
+                // UNIFIED TARGET: Pull everything into the deep tunnel
+                // This ensures Gravity and Funnel forces agree on direction (-Z)
+                const tunnelDepth = BLACK_HOLE.tunnelDepth || 8;
+                const targetZ = bhZ - tunnelDepth;
+
                 const dx = bhX - x;
                 const dy = bhY - y;
-                const dz = bhZ - z;
+                const dz = targetZ - z; // Gravity pulls to deep point
 
-                const r2 = dx * dx + dy * dy + dz * dz + BLACK_HOLE.eps * BLACK_HOLE.eps;
-                const r = Math.sqrt(r2);
+                // OPTIMIZATION: Use distSq for early exit
+                const distSq = dx * dx + dy * dy + dz * dz;
+                const influenceRSq = influenceR * influenceR;
 
-                if (r < influenceR) {
-                    const t = 1 - (r / influenceR);
-                    const infl = t * t * (3 - 2 * t); // smoothstep
+                // For distant vertices - still apply gravity but weaker
+                // DO NOT use continue - it skips integration!
 
-                    const pullStr = pull; // Use global pull factor
+                const softening = BLACK_HOLE.eps * BLACK_HOLE.eps;
+                const safeDist = Math.sqrt(distSq + softening);
+                const invDist = 1 / safeDist;
 
-                    // rHat (direction to BH)
-                    const invR = 1 / r;
-                    // We want vector FROM vertex TO BH, so (dx, dy, dz) is correct
-                    const rHatX = dx * invR;
-                    const rHatY = dy * invR;
-                    const rHatZ = dz * invR;
+                // Normalized direction TO deep center
+                const rHatX = dx * invDist;
+                const rHatY = dy * invDist;
+                const rHatZ = dz * invDist;
 
-                    // Gravity: GM / r^2
-                    let aMag = BLACK_HOLE.mass / r2;
-                    if (aMag > BLACK_HOLE.maxAccel) aMag = BLACK_HOLE.maxAccel;
+                // === UNIVERSAL GRAVITY ===
+                // Now pulls towards the deep targetZ, preventing "forward pull"
+                const basePull = BLACK_HOLE.mass / (distSq + softening + 100);
+                const distantPull = Math.min(basePull, BLACK_HOLE.maxAccel * 0.3);
 
-                    // Swirl: Tangential acceleration around Z axis
-                    // tHat = zAxis (0,0,1) cross rHat
-                    // zAxis = (0,0,1) -> cross product simplified:
-                    // cx = 0*rz - 1*ry = -ry
-                    // cy = 1*rx - 0*rz = rx
-                    // cz = 0*ry - 0*rx = 0
-                    let tHatX = -rHatY;
-                    let tHatY = rHatX;
-                    let tHatZ = 0;
+                // Apply base gravity to ALL vertices
+                this.velocity[idx] += rHatX * distantPull * dt * pull;
+                this.velocity[idx + 1] += rHatY * distantPull * dt * pull;
+                this.velocity[idx + 2] += rHatZ * distantPull * dt * pull;
 
-                    // Hardened Swirl: prevent division by zero near center
-                    // r is distance to BH center.
-                    // If r -> 0 and eps -> 0, this explodes.
-                    const safeR = Math.sqrt(r2 + BLACK_HOLE.eps * BLACK_HOLE.eps) + 0.1;
-                    const swirlMag = BLACK_HOLE.spin / safeR;
+                // === DIRECT POSITION PULL (Funnel Effect) ===
+                const suctionSpeed = BLACK_HOLE.suctionSpeed || 0.15;
+                const ease = pull * dt * suctionSpeed * 8.0;
 
-                    // Total acceleration
-                    const aRadX = rHatX * aMag;
-                    const aRadY = rHatY * aMag;
-                    const aRadZ = rHatZ * aMag;
+                // Apply force towards the DEEP target (Funnel)
+                // We use the same dx, dy, dz (which are already pointing to target)
+                this.currentPos[idx] += dx * ease * 0.8;     // Strong XY alignment
+                this.currentPos[idx + 1] += dy * ease * 0.8; // Strong XY alignment
+                this.currentPos[idx + 2] += dz * ease * 0.5; // Moderate Z depth
 
-                    const aTanX = tHatX * swirlMag;
-                    const aTanY = tHatY * swirlMag;
-                    const aTanZ = tHatZ * swirlMag;
+                // Skip detailed physics for very distant vertices
+                if (distSq > influenceRSq) {
+                    this.absorb[i] = Math.max(0, this.absorb[i] - 1.0 * dt);
+                } else {
+                    // === CLAMP TO CENTER IF ABSORBED ===
+                    if (this.absorb[i] >= 0.95 || distSq < 1.0) {
+                        this.currentPos[idx] = bhX;
+                        this.currentPos[idx + 1] = bhY;
+                        this.currentPos[idx + 2] = bhZ;
+                        this.velocity[idx] = 0;
+                        this.velocity[idx + 1] = 0;
+                        this.velocity[idx + 2] = 0;
+                        continue; // Stop processing this vertex
+                    }
+                    // === INSIDE INFLUENCE ZONE ===
+                    const t = 1 - (safeDist / influenceR);
+                    const infl = t * t * (3 - 2 * t);
 
-                    // Apply acceleration
-                    this.velocity[idx] += (aRadX + aTanX) * dt * infl * pullStr;
-                    this.velocity[idx + 1] += (aRadY + aTanY) * dt * infl * pullStr;
-                    this.velocity[idx + 2] += (aRadZ + aTanZ) * dt * infl * pullStr;
+                    // Strong pinch for close vertices
+                    const pinchStrength = BLACK_HOLE.mass / (distSq + softening);
+                    const clampedPinch = Math.min(pinchStrength, BLACK_HOLE.maxAccel);
+                    const radialAccel = clampedPinch * dt * infl * pull;
 
-                    // Drag (Inspiral energy loss)
-                    const d = 1 - (BLACK_HOLE.drag * dt * infl * pullStr);
-                    const damp = Math.max(0.86, d);
+                    this.velocity[idx] += rHatX * radialAccel;
+                    this.velocity[idx + 1] += rHatY * radialAccel;
+                    this.velocity[idx + 2] += rHatZ * radialAccel;
+
+                    // === STRONGER DIRECT POSITION PULL for close vertices ===
+                    const strongPull = infl * pull * dt * suctionSpeed * 12;
+                    this.currentPos[idx] += dx * strongPull * 0.1;
+                    this.currentPos[idx + 1] += dy * strongPull * 0.1;
+                    this.currentPos[idx + 2] += dz * strongPull * 0.1;
+
+                    // === PHASE 3: SWIRL (Spiral Rotation) ===
+                    // Cross product: upAxis(0,0,1) × rHat = (-rHatY, rHatX, 0)
+                    const tangentX = -rHatY;
+                    const tangentY = rHatX;
+                    // tangentZ = 0 for rotation around Z axis
+
+                    // Swirl increases closer to center
+                    const swirlStrength = BLACK_HOLE.spin / (safeDist + 1.0);
+                    const swirlAccel = swirlStrength * dt * infl * pull;
+
+                    this.velocity[idx] += tangentX * swirlAccel;
+                    this.velocity[idx + 1] += tangentY * swirlAccel;
+
+                    // === PHASE 4: COMPRESSION (Perpendicular Squeeze) ===
+                    // Compute radial velocity component
+                    const vDotR = this.velocity[idx] * rHatX +
+                        this.velocity[idx + 1] * rHatY +
+                        this.velocity[idx + 2] * rHatZ;
+
+                    // Tidal zone: compress perpendicular to pull direction
+                    const tidalR = BLACK_HOLE.tidalRadius / sphereScale;
+                    if (safeDist < tidalR) {
+                        const tidalFactor = 1 - (safeDist / tidalR);
+
+                        // Decompose velocity into radial and perpendicular
+                        const radialVx = vDotR * rHatX;
+                        const radialVy = vDotR * rHatY;
+                        const radialVz = vDotR * rHatZ;
+
+                        const perpVx = this.velocity[idx] - radialVx;
+                        const perpVy = this.velocity[idx + 1] - radialVy;
+                        const perpVz = this.velocity[idx + 2] - radialVz;
+
+                        // COMPRESS perpendicular (makes stream thinner)
+                        // PRESERVE radial (keeps pulling towards BH)
+                        const compression = 1 - tidalFactor * 0.4 * BLACK_HOLE.tidalStrength;
+
+                        this.velocity[idx] = radialVx + perpVx * compression;
+                        this.velocity[idx + 1] = radialVy + perpVy * compression;
+                        this.velocity[idx + 2] = radialVz + perpVz * compression;
+
+                        // BOOST radial velocity slightly (accelerate towards BH)
+                        const radialBoost = 1 + tidalFactor * 0.15 * BLACK_HOLE.tidalStrength;
+                        this.velocity[idx] += rHatX * (radialBoost - 1) * Math.abs(vDotR);
+                        this.velocity[idx + 1] += rHatY * (radialBoost - 1) * Math.abs(vDotR);
+                        this.velocity[idx + 2] += rHatZ * (radialBoost - 1) * Math.abs(vDotR);
+                    }
+
+                    // Drag (energy loss during inspiral)
+                    const dragFactor = 1 - (BLACK_HOLE.drag * dt * infl * pull);
+                    const damp = Math.max(0.85, dragFactor);
                     this.velocity[idx] *= damp;
                     this.velocity[idx + 1] *= damp;
                     this.velocity[idx + 2] *= damp;
 
-                    // Tidal Forces (Spaghettification)
-                    const tidalR = BLACK_HOLE.tidalRadius / sphereScale;
-                    if (r < tidalR) {
-                        const k = 1 - (r / tidalR);
-                        // Radial stretching along rHat
-                        const vDotR = this.velocity[idx] * rHatX + this.velocity[idx + 1] * rHatY + this.velocity[idx + 2] * rHatZ;
-                        const add = vDotR * (k * 0.65 * BLACK_HOLE.tidalStrength) * dt;
+                    // === PHASE 5: ABSORPTION & VERTEX CLAMPING ===
+                    if (safeDist < horizonR) {
+                        // Calculate absorption rate
+                        const absorbRaw = Math.min(1, (horizonR - safeDist) / (horizonR - (BLACK_HOLE.absorbRadius || 3)))
+                            * BLACK_HOLE.absorbRate * dt * pull;
+                        const absorb = Math.min(absorbRaw, 0.015);
 
-                        this.velocity[idx] += rHatX * add;
-                        this.velocity[idx + 1] += rHatY * add;
-                        this.velocity[idx + 2] += rHatZ * add;
-
-                        // Squeeze tangential
-                        const squeeze = 1 - k * 0.12 * BLACK_HOLE.tidalStrength;
-                        this.velocity[idx] *= squeeze;
-                        this.velocity[idx + 1] *= squeeze;
-                        this.velocity[idx + 2] *= squeeze;
-                    }
-
-                    // Absorption at Horizon
-                    if (r < horizonR) {
-                        // Absorption (Clamp per frame for smoothness)
-                        const absorbRaw = Math.min(1, Math.max(0, (horizonR - r) / (horizonR - BLACK_HOLE.absorbRadius))) * BLACK_HOLE.absorbRate * dt * pull;
-                        const absorb = Math.min(absorbRaw, 0.012); // Limit change per frame
-
-                        // Audio Rumble Trigger (Safe)
+                        // Audio trigger
                         if (absorb > 0.001 && Math.random() < 0.03) {
                             try {
                                 if (window.audio && window.audio.triggerRumble) {
                                     window.audio.triggerRumble(0.8);
                                 }
-                            } catch (e) { console.warn('Audio Rumble fail', e); }
+                            } catch (e) { /* ignore */ }
                         }
 
                         this.absorb[i] = Math.min(1, this.absorb[i] + absorb);
 
-                        // Soften Z-pull
+                        // Pull vertex towards BH center (suction effect)
+                        const pullToBH = absorb * 2.5;
+                        this.currentPos[idx] += dx * pullToBH * 0.1;
+                        this.currentPos[idx + 1] += dy * pullToBH * 0.1;
+                        this.currentPos[idx + 2] += dz * pullToBH * 0.1;
+
+                        // Z-depth tunnel effect
                         const depth = BLACK_HOLE.tunnelDepth * (0.35 + 0.65 * pull);
-                        this.currentPos[idx + 2] -= absorb * depth; // Apply to Z component directly
+                        this.currentPos[idx + 2] -= absorb * depth * 0.5;
 
-                        // Gentle Shrink (assuming p is a vector, applying to currentPos components)
-                        const shrinkFactor = (1 - absorb * BLACK_HOLE.shrinkRate);
-                        this.currentPos[idx] *= shrinkFactor;
-                        this.currentPos[idx + 1] *= shrinkFactor;
-                        this.currentPos[idx + 2] *= shrinkFactor;
+                        // Kill velocity as absorbed
+                        const velocityDampen = 1 - 0.6 * this.absorb[i];
+                        this.velocity[idx] *= velocityDampen;
+                        this.velocity[idx + 1] *= velocityDampen;
+                        this.velocity[idx + 2] *= velocityDampen;
 
-                        // Cheap Tidal Stretch (Spaghettification)
-                        if (r < 30) { // Using 'r' for distance to BH center
-                            const tidal = Math.max(0, (30 - r) / 30) * 0.03 * pull;
-                            // Stretch along radial direction (rHat)
-                            this.currentPos[idx] += rHatX * tidal * 2.5;
-                            this.currentPos[idx + 1] += rHatY * tidal * 2.5;
-                            this.currentPos[idx + 2] += rHatZ * tidal * 2.5;
-                            // Squeeze
-                            const squeezeFactor = (1 - tidal * 0.35);
-                            this.currentPos[idx] *= squeezeFactor;
-                            this.currentPos[idx + 1] *= squeezeFactor;
-                            this.currentPos[idx + 2] *= squeezeFactor;
-                        }
-                        this.velocity[idx] *= (1 - 0.55 * this.absorb[i]); // Kill velocity
+                        // Very close to center: clamp to BH position
+                        const absR = (BLACK_HOLE.absorbRadius || 3) / sphereScale;
+                        if (safeDist < absR) {
+                            const lerpFactor = 0.2 * this.absorb[i];
+                            this.currentPos[idx] += (bhX - this.currentPos[idx]) * lerpFactor;
+                            this.currentPos[idx + 1] += (bhY - this.currentPos[idx + 1]) * lerpFactor;
+                            this.currentPos[idx + 2] += (bhZ - this.currentPos[idx + 2]) * lerpFactor;
 
-                        // Inside absorb radius: clamp to center to prevent explosion
-                        const absR = BLACK_HOLE.absorbRadius / sphereScale;
-                        if (r < absR) {
-                            this.currentPos[idx] += (dx - this.currentPos[idx]) * 0.15 * a01;
-                            this.currentPos[idx + 1] += (dy - this.currentPos[idx + 1]) * 0.15 * a01;
-                            this.velocity[idx] *= 0.2;
-                            this.velocity[idx + 1] *= 0.2;
-                            this.velocity[idx + 2] *= 0.2;
+                            // Almost no velocity at center
+                            this.velocity[idx] *= 0.15;
+                            this.velocity[idx + 1] *= 0.15;
+                            this.velocity[idx + 2] *= 0.15;
                         }
                     } else {
-                        // Relax absorption
+                        // Relax absorption when outside horizon
                         this.absorb[i] = Math.max(0, this.absorb[i] - 0.25 * dt);
                     }
 
                     bhFade = this.absorb[i];
-                } else {
-                    this.absorb[i] = Math.max(0, this.absorb[i] - 1.0 * dt);
-                }
-            }
+                } // end of else (inside influence zone)
+            } // end of if (bhEnabled)
 
-            // Integration & Friction
+            // Integration & Friction - MUST be outside bhEnabled block!
             this.velocity[idx] *= 0.88;
             this.velocity[idx + 1] *= 0.88;
             this.velocity[idx + 2] *= 0.88;
@@ -488,27 +633,22 @@ export class SoftBody {
             maxStress = Math.max(maxStress, stress);
 
             // Color based on stress: cyan → yellow → orange → red
-            const stressNorm = Math.min(1.0, stress * 0.5); // More sensitive
+            const stressNorm = Math.min(1.0, stress * 0.5);
 
             if (stressNorm < 0.2) {
-                // Low stress: cyan/blue
                 this.tmpColor.setHSL(0.55, 1.0, 0.5);
             } else if (stressNorm < 0.4) {
-                // Light stress: yellow
                 const t = (stressNorm - 0.2) / 0.2;
-                this.tmpColor.setHSL(0.55 - t * 0.4, 1.0, 0.5); // cyan to yellow
+                this.tmpColor.setHSL(0.55 - t * 0.4, 1.0, 0.5);
             } else if (stressNorm < 0.7) {
-                // Medium stress: orange
                 const t = (stressNorm - 0.4) / 0.3;
-                this.tmpColor.setHSL(0.15 - t * 0.08, 1.0, 0.5); // yellow to orange
+                this.tmpColor.setHSL(0.15 - t * 0.08, 1.0, 0.5);
             } else {
-                // High stress: red
                 const t = (stressNorm - 0.7) / 0.3;
-                this.tmpColor.setHSL(0.07 - t * 0.07, 1.0, 0.45 + t * 0.1); // orange to red
+                this.tmpColor.setHSL(0.07 - t * 0.07, 1.0, 0.45 + t * 0.1);
             }
 
             // Apply black hole absorption fade
-            // Use this.absorb[i] for accurate per-vertex fading
             const absorb = this.absorb[i];
             if (absorb > 0) {
                 const energy = 1 - 0.85 * absorb;
@@ -520,16 +660,16 @@ export class SoftBody {
             this.colors[idx] = this.tmpColor.r;
             this.colors[idx + 1] = this.tmpColor.g;
             this.colors[idx + 2] = this.tmpColor.b;
-        }
+        } // end of main vertex loop
 
         // Emergency Reset if Physics Exploded
         if (hasNaN) {
             console.warn("Physics NaN detected! Emergency Reset.");
             for (let i = 0; i < count; i++) {
                 const idx = i * 3;
-                pos[idx] = this.originalPos[idx];
-                pos[idx + 1] = this.originalPos[idx + 1];
-                pos[idx + 2] = this.originalPos[idx + 2];
+                pos[idx] = this.origPos[idx];       // Fixed: was 'originalPos'
+                pos[idx + 1] = this.origPos[idx + 1];
+                pos[idx + 2] = this.origPos[idx + 2];
                 vel[idx] = 0;
                 vel[idx + 1] = 0;
                 vel[idx + 2] = 0;
@@ -538,6 +678,20 @@ export class SoftBody {
         }
 
         STATE.stressEMA = STATE.stressEMA * 0.92 + maxStress * 0.08;
+
+        // Update Sphere UserData for NeuralNet to use
+        if (this.count > 0) {
+            const avgR = sumRadius / this.count;
+            this.mesh.userData.currentRadius = avgR;
+
+            // Update CoM for next frame
+            this.centerOfMass.set(sumX / this.count, sumY / this.count, sumZ / this.count);
+
+            // Copy to userData so NeuralNet can read it
+            if (!this.mesh.userData.centerOfMass) this.mesh.userData.centerOfMass = new THREE.Vector3();
+            this.mesh.userData.centerOfMass.copy(this.centerOfMass);
+        }
+
         this.geometry.attributes.position.needsUpdate = true;
         this.geometry.attributes.color.needsUpdate = true;
     }

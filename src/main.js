@@ -34,6 +34,7 @@ const el = {
     btnAr: $("btn-ar"),
     btnInfo: $("btn-info"),
     btnLowLight: $("btn-lowlight"),
+    btnReset: $("btn-reset"),
     btnTuning: $("btn-tuning"),
     infoPanel: $("info-panel"),
     hudStatus: $("hud-status")
@@ -74,6 +75,11 @@ const neural = new NeuralNet(scene);
 const physics = new PhysicsWorld(scene, sphere, neural);
 physics.initARObjects();
 
+// Connect tuner to all objects for reset functionality
+tuner.neuralNet = neural;
+tuner.sphere = sphere;
+tuner.physics = physics;
+
 // --- VOICE ---
 const voice = new VoiceCommand({
     'запис': () => { STATE.recording = !STATE.recording; postLine(STATE.recording ? '> Запис...' : '> Запис зупинено'); },
@@ -93,12 +99,29 @@ const voice = new VoiceCommand({
 });
 
 // --- STATE HELPERS ---
+
 function postLine(text) {
-    el.chat.textContent = "";
-    const div = document.createElement("div");
-    div.className = "log-msg";
-    div.textContent = `> ${text}`;
-    el.chat.appendChild(div);
+    // Redirect to HUD Status (Top-Left) -> REMOVED. 
+    // User requested "Dialogue Only at Bottom". 
+    // Use postTechStatus() for Top-Left messages.
+
+    /* 
+    if (el.hudStatus) {
+        el.hudStatus.innerHTML = `// STATUS: <span style="color:#00f3ff">${text}</span>`;
+        // ...
+    }
+    */
+    // Log to console
+    console.log(`[AI SOUL] ${text}`);
+
+    // Show only ONE message at a time (Bottom-Center Log)
+    if (el.chat) {
+        el.chat.innerHTML = ""; // Clear previous message
+        const div = document.createElement("div");
+        div.className = "log-msg";
+        div.textContent = `> ${text}`;
+        el.chat.appendChild(div);
+    }
 }
 
 let techStatusTimeout = null;
@@ -115,10 +138,24 @@ function postTechStatus(text) {
 }
 
 // Priority: true = can interrupt quickly, false = respects long cooldown
+// Priority: true = can interrupt quickly, false = respects long cooldown
 function say(type, cooldownMs = 8000, priority = false) {
     const now = Date.now();
-    const effectiveCooldown = priority ? Math.min(cooldownMs, 2000) : cooldownMs;
-    if (now - STATE.lastChatAt < effectiveCooldown) return false;
+    // User Request: "New phrase should replace previous but be readable"
+    // Don't interrupt if displayed for less than 4 seconds!
+    // Priority (extreme tension) can interrupt after 1.5s
+    const MIN_READ_TIME = priority ? 1500 : 4000;
+
+    if (now - STATE.lastChatAt < MIN_READ_TIME) return false;
+
+    // Also respect type-specific cooldowns (to avoid spamming "idle" or "touch")
+    // usage: say("touch", 15000) -> won't say "touch" again for 15s.
+    // But if we switch to "magnet", that's allowed after MIN_READ_TIME.
+
+    // NOTE: The original logic used `STATE.lastChatAt` for ALL cooldowns, effectively blocking EVERYTHING.
+    // We should ideally track per-type cooldowns, but for now let's stick to the requested "readability" logic
+    // and rely on the fact that updateMonologue is called often.
+
     const line = messenger.next(type);
     if (!line) return false;
     postLine(line);
@@ -236,7 +273,7 @@ function animate() {
     // 1. Physics & Logic
     if ((animFrame % q.physicsEvery) === 0) {
         physics.update(STATE.hands, camera, deltaTime);
-        neural.update(STATE.stressEMA, sphere.scale.x, sphere.position);
+        neural.update(STATE.stressEMA, sphere.scale.x, sphere.position, STATE.blackHolePos);
         updateMonologue();
     }
     sparks.update();
@@ -259,7 +296,7 @@ function animate() {
             if (STATE.fpsLowCounter > 2) { // 3 seconds of low FPS
                 applyQuality(STATE.tier + 1);
                 STATE.fpsLowCounter = 0;
-                postLine(`> Quality optimized to Tier ${STATE.tier}`);
+                postTechStatus(`// QUALITY: TIER ${STATE.tier}`);
             }
         } else {
             STATE.fpsLowCounter = 0;
@@ -346,21 +383,29 @@ tracker.onResults((res) => {
         });
     }
 
-    // Singularity Activation Logic
+    // Singularity Activation Logic with smooth transitions
     const now = Date.now();
-    let globalTunnelFactor = 0;
+    let targetPull = 0;
     if (maxFistFactor > 0.5) {
         if (!STATE.fistHoldStart) STATE.fistHoldStart = now;
-        globalTunnelFactor = clamp01((now - STATE.fistHoldStart) / 3000);
+        targetPull = clamp01((now - STATE.fistHoldStart) / 3000);
     } else {
         STATE.fistHoldStart = null;
+        // Smooth decay when releasing fist
+        targetPull = STATE.blackHolePull * 0.92; // Gradual decay
     }
-    STATE.globalTunnelFactor = globalTunnelFactor;
-    STATE.blackHolePull = globalTunnelFactor;
+    STATE.globalTunnelFactor = targetPull;
 
-    if (globalTunnelFactor > 0.5 && STATE.mode !== 'SINGULARITY') {
+    // Smooth lerp for blackHolePull (prevents jarring transitions)
+    const lerpSpeed = targetPull > STATE.blackHolePull ? 0.08 : 0.04; // Faster activation, slower deactivation
+    STATE.blackHolePull += (targetPull - STATE.blackHolePull) * lerpSpeed;
+
+    // Clamp very small values to zero
+    if (STATE.blackHolePull < 0.001) STATE.blackHolePull = 0;
+
+    if (STATE.blackHolePull > 0.5 && STATE.mode !== 'SINGULARITY') {
         triggerBlackHoleMode();
-    } else if (maxFistFactor < 0.2 && STATE.mode === 'SINGULARITY') {
+    } else if (STATE.blackHolePull < 0.05 && STATE.mode === 'SINGULARITY') {
         exitBlackHoleMode();
     }
 
@@ -471,6 +516,17 @@ if (el.btnTuning) {
         el.menuFab.classList.remove('active');
     });
 }
+
+// Reset Button
+if (el.btnReset) {
+    el.btnReset.addEventListener('click', () => {
+        tuner.resetToDefaults();
+        el.menuSubmenu.classList.remove('active');
+        el.menuFab.classList.remove('active');
+        postTechStatus('// RESET: DEFAULTS RESTORED');
+    });
+}
+
 applyQuality(0);
 window.addEventListener('resize', resizeHUD);
 window.addEventListener('load', init);

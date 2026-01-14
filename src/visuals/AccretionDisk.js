@@ -158,22 +158,41 @@ export class AccretionDisk {
             positions[i * 3 + 1] = cy + py;
             positions[i * 3 + 2] = cz + z;
 
-            // Thermodynamics / Color
+            // Thermodynamics / Color (Improved palette)
             // Heat increases near inner radius
             const normalizedDist = (r - innerR) / range; // 0 (inner) to 1 (outer)
             let heat = (1.0 - normalizedDist);
             heat = Math.pow(heat, cfg.heatGain); // Curve it
 
-            // Color mapping: 
-            // Outer (cold): Cyan/Blue (0.0, 0.6, 1.0)
-            // Inner (hot): Orange/White (1.0, 0.9, 0.5) -> (1, 1, 1)
+            // Enhanced Color mapping with Doppler shift simulation:
+            // Outer (cold): Deep violet/blue (0.3, 0.1, 0.9)
+            // Mid zone: Cyan/turquoise (0.0, 0.8, 1.0)  
+            // Inner (hot): Yellow -> Orange -> White (1.0, 1.0, 0.8)
 
-            const rCol = 0.0 + heat * 1.0;
-            const gCol = 0.6 + heat * 0.35;
-            const bCol = 1.0 - heat * 0.2;
+            let rCol, gCol, bCol;
+            if (heat < 0.3) {
+                // Outer zone: violet/blue
+                const t = heat / 0.3;
+                rCol = 0.2 + t * 0.1;
+                gCol = 0.1 + t * 0.5;
+                bCol = 0.9 - t * 0.1;
+            } else if (heat < 0.6) {
+                // Mid zone: cyan/turquoise transition
+                const t = (heat - 0.3) / 0.3;
+                rCol = 0.3 + t * 0.5;
+                gCol = 0.6 + t * 0.3;
+                bCol = 0.8 - t * 0.2;
+            } else {
+                // Inner zone: orange -> white (brightest)
+                const t = (heat - 0.6) / 0.4;
+                rCol = 0.8 + t * 0.2;
+                gCol = 0.9 + t * 0.1;
+                bCol = 0.6 + t * 0.4;
+            }
 
-            // Intensity boost near horizon
-            const intensity = 0.5 + heat * 1.5;
+            // Intensity boost near horizon with flickering
+            const flicker = 0.95 + 0.05 * Math.sin(time * 15.0 + theta * 3.0);
+            const intensity = (0.5 + heat * 1.8) * flicker;
 
             colors[i * 3] = Math.min(1, rCol * intensity);
             colors[i * 3 + 1] = Math.min(1, gCol * intensity);

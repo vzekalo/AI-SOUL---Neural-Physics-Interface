@@ -1,8 +1,14 @@
 export class Tuner {
-    constructor(state, config, containerId = "tuning-overlay") {
+    constructor(state, config, containerId = "tuning-overlay", neuralNet = null, sphere = null, physics = null) {
         this.state = state;
         this.config = config;
+        this.neuralNet = neuralNet;
+        this.sphere = sphere;
+        this.physics = physics;
         this.visible = false;
+
+        // Store default values for reset
+        this.defaults = { ...config };
 
         this.initUI(containerId);
         window.addEventListener('keydown', (e) => {
@@ -42,6 +48,7 @@ export class Tuner {
         this.addSeparator();
 
         this.addSlider("Tidal Str", "tidalStrength", 0, 5.0, 0.1, (v) => this.config.tidalStrength = v);
+        this.addSlider("Швидкість Всмоктування", "suctionSpeed", 0.01, 0.5, 0.01, (v) => this.config.suctionSpeed = v);
         this.addValue("Current Pull", () => this.state.blackHolePull.toFixed(2));
     }
 
@@ -104,6 +111,81 @@ export class Tuner {
                 if (el) el.textContent = provider();
             }
         }, 200);
+    }
+
+    addResetButton() {
+        const btn = document.createElement('button');
+        btn.textContent = "🔄 Скинути до Дефолту";
+        btn.style.cssText = `
+            width: 100%; padding: 8px; margin-top: 8px;
+            background: rgba(255, 100, 100, 0.3); border: 1px solid #ff6464;
+            color: #ff6464; font-family: 'Share Tech Mono'; cursor: pointer;
+            transition: all 0.2s;
+        `;
+        btn.onmouseover = () => {
+            btn.style.background = "rgba(255, 100, 100, 0.5)";
+        };
+        btn.onmouseout = () => {
+            btn.style.background = "rgba(255, 100, 100, 0.3)";
+        };
+        btn.onclick = () => this.resetToDefaults();
+        this.el.appendChild(btn);
+    }
+
+    resetToDefaults() {
+        // Reset all config values to defaults
+        Object.keys(this.defaults).forEach(key => {
+            this.config[key] = this.defaults[key];
+        });
+
+        // Reset state values
+        this.state.blackHolePull = 0;
+        this.state.mode = 'NORMAL';
+        this.state.stressEMA = 0;
+
+        // Reset sphere position and scale
+        // Reset sphere position and scale
+        if (this.sphere) {
+            this.sphere.position.set(0, 0, 0);
+            this.sphere.rotation.set(0, 0, 0);
+            this.sphere.quaternion.identity();
+            this.sphere.scale.setScalar(1);
+            this.sphere.updateMatrix();
+            this.sphere.updateMatrixWorld(true);
+        }
+
+        // Reset SoftBody physics
+        if (this.physics && this.physics.softBody && this.physics.softBody.reset) {
+            this.physics.softBody.reset();
+        }
+
+        // Reset Singularity effects (Visibility, Opacity)
+        if (this.physics && this.physics.singularity && this.sphere) {
+            this.physics.singularity.reset(this.sphere);
+        }
+
+        // Reset Neurons
+        if (this.neuralNet && this.neuralNet.reset) {
+            this.neuralNet.reset();
+        }
+
+        // Reset neurons if available
+        if (this.neuralNet && this.neuralNet.reset) {
+            this.neuralNet.reset();
+        }
+
+        // Update all sliders to reflect new values
+        this.el.querySelectorAll('input[type="range"]').forEach(input => {
+            const prop = input.id?.replace('slider-', '') ||
+                input.parentElement.querySelector('span[id^="val-"]')?.id.replace('val-', '');
+            if (prop && this.defaults[prop] !== undefined) {
+                input.value = this.defaults[prop];
+                const valSpan = this.el.querySelector(`#val-${prop}`);
+                if (valSpan) valSpan.textContent = this.defaults[prop];
+            }
+        });
+
+        console.log("🔄 Скинуто до дефолту");
     }
 
     toggle() {
