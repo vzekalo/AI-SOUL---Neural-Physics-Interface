@@ -151,34 +151,46 @@ export class NeuralNet {
                     }
                 }
 
-                // === CONSTRAIN WITHIN SPHERE BOUNDS ===
-                // basePos is in LOCAL space
-                const distFromCenter = neuron.userData.basePos.length();
+                // === PHYSICAL FORCES ON NEURONS ===
+                if (bhActive && blackHolePos) {
+                    // 1. Black Hole Pull (Suction into the tunnel)
+                    // We pull the internal 'basePos' towards the deeper target
+                    const targetZ = blackHolePos.z - (BLACK_HOLE.tunnelDepth || 8);
+                    this.tmpVec.set(blackHolePos.x, blackHolePos.y, targetZ);
+                    this.tmpVec2.copy(this.tmpVec).sub(neuron.userData.basePos);
 
-                // Dynamic max radius from SoftBody (Physics Real-time)
-                // Fallback to CFG.radius if undefined (e.g. first frame or missing reference)
-                const currentR = this.sphere?.userData?.currentRadius;
-                const dynamicRadius = (currentR || CFG.radius) * 0.9;
+                    const distToBH = this.tmpVec2.length();
+                    const force = (pull * suctionSpeed * 0.15) / (distToBH * 0.1 + 1.0);
+                    neuron.userData.driftVel.addScaledVector(this.tmpVec2.normalize(), force);
+                }
 
-                // Allow sphereScale to affect it too (redundant if SoftBody handles vertices, but safe)
-                // Actually, SoftBody vertices ARE scaled if sphere is scaled? 
-                // SoftBody works on World Pos? No, Local Pos usually.
-                // Let's assume currentRadius is correct.
-                const effectiveMaxRadius = dynamicRadius;
+                // 2. Center of Mass Attraction (Keep them inside the sphere)
+                const centeringForce = baseActivity * 0.005;
+                neuron.userData.driftVel.addScaledVector(neuron.userData.basePos, -centeringForce);
 
-                if (distFromCenter > effectiveMaxRadius) {
-                    // Hard Clamp
-                    neuron.userData.basePos.normalize().multiplyScalar(effectiveMaxRadius);
+                // Apply velocity
+                neuron.userData.basePos.add(neuron.userData.driftVel);
+                neuron.userData.driftVel.multiplyScalar(0.92); // Friction
 
-                    // Strong Dampening (User request: "sphere decreases velocity")
-                    // Reflect velocity but lose 60% energy (0.4 restitution)
-                    const normal = neuron.userData.basePos.clone().normalize();
-                    neuron.userData.driftVel.reflect(normal).multiplyScalar(0.4);
+                // === CONSTRAIN WITHIN VOLUMETRIC BOUNDS ===
+                // We use separate XY and Z radius for the funnel shape
+                const rXY = (this.sphere?.userData?.currentRadiusXY || CFG.radius) * 0.85;
+                const rZ = (this.sphere?.userData?.currentRadiusZ || CFG.radius) * 0.9;
 
-                    // Add slight random jitter to prevent sticking
-                    neuron.userData.driftVel.x += (Math.random() - 0.5) * 0.01;
-                    neuron.userData.driftVel.y += (Math.random() - 0.5) * 0.01;
-                    neuron.userData.driftVel.z += (Math.random() - 0.5) * 0.01;
+                // Clamp XY
+                const distXY = Math.sqrt(neuron.userData.basePos.x ** 2 + neuron.userData.basePos.y ** 2);
+                if (distXY > rXY) {
+                    const fac = rXY / distXY;
+                    neuron.userData.basePos.x *= fac;
+                    neuron.userData.basePos.y *= fac;
+                    neuron.userData.driftVel.x *= -0.4;
+                    neuron.userData.driftVel.y *= -0.4;
+                }
+
+                // Clamp Z
+                if (Math.abs(neuron.userData.basePos.z) > rZ) {
+                    neuron.userData.basePos.z = Math.sign(neuron.userData.basePos.z) * rZ;
+                    neuron.userData.driftVel.z *= -0.4;
                 }
 
                 // Minimum radius (don't go to center)

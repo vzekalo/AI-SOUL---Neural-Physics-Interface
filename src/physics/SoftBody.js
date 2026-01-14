@@ -258,6 +258,8 @@ export class SoftBody {
 
         let maxStress = 0;
         let sumRadius = 0;
+        let sumRadiusXY = 0;
+        let sumRadiusZ = 0;
         let sumX = 0, sumY = 0, sumZ = 0;
         const cx = this.centerOfMass.x; // Use previous frame CoM for radius calc
         const cy = this.centerOfMass.y;
@@ -278,6 +280,8 @@ export class SoftBody {
             const dy = y - cy;
             const dz = z - cz;
             sumRadius += Math.sqrt(dx * dx + dy * dy + dz * dz);
+            sumRadiusXY += Math.sqrt(dx * dx + dy * dy);
+            sumRadiusZ += Math.abs(dz);
 
             // ... rest of loop ...
 
@@ -538,7 +542,8 @@ export class SoftBody {
 
                         // COMPRESS perpendicular (makes stream thinner)
                         // PRESERVE radial (keeps pulling towards BH)
-                        const compression = 1 - tidalFactor * 0.4 * BLACK_HOLE.tidalStrength;
+                        // FIX: Stronger compression for "tight" funnel
+                        const compression = 1 - tidalFactor * 0.75 * BLACK_HOLE.tidalStrength;
 
                         this.velocity[idx] = radialVx + perpVx * compression;
                         this.velocity[idx + 1] = radialVy + perpVy * compression;
@@ -683,6 +688,8 @@ export class SoftBody {
         if (this.count > 0) {
             const avgR = sumRadius / this.count;
             this.mesh.userData.currentRadius = avgR;
+            this.mesh.userData.currentRadiusXY = sumRadiusXY / this.count;
+            this.mesh.userData.currentRadiusZ = sumRadiusZ / this.count;
 
             // Update CoM for next frame
             this.centerOfMass.set(sumX / this.count, sumY / this.count, sumZ / this.count);
